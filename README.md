@@ -1,8 +1,8 @@
 # Roadster (g002)
 
-A 3D browser racing game starring an electric sports car, built with **three.js** and **Rapier** physics. This first version is a single-player driving prototype: one car on one circuit, with a chase camera and handling tuned to feel good on a keyboard or a gamepad.
+A 3D browser racing game starring an electric sports car, built with **three.js** and **Rapier** physics. Race five AI rivals over three laps of one circuit, with cold-gas thrusters for boosts, hops and flips, a chase camera, and handling tuned to feel good on a keyboard or a gamepad. Free practice lets you drive alone and chase your best lap.
 
-It builds on [g001 (Grand Prix Racer)](https://github.com/l4mb0lion/g001-racing): the driving help, input handling, graphics presets, lighting, surface shaders, camera rig, crash recovery and synthesised audio all come from there, adapted for an EV and for Rapier.
+It builds on [g001 (Grand Prix Racer)](https://github.com/l4mb0lion/g001-racing): the driving help, input handling, graphics presets, lighting, surface shaders, camera rig, crash recovery, synthesised audio and the AI drivers all come from there, adapted for an EV and for Rapier.
 
 ## Play online
 
@@ -16,6 +16,12 @@ npm run dev        # http://localhost:5173
 ```
 
 Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic graphics preset, `?tod=morning|noon|sunset|night` picks the time of day, `?autodrive` lets the autopilot drive (a demo lap), and `?safe` starts in safe graphics.
+
+## Racing
+
+Press any key on the title screen to race, or **F** for free practice. In a race you start fifth of six on a staggered grid; the standings panel (top right) shows your position, the lap and the gaps, and rivals appear as coloured dots on the map. After the flag the autopilot takes a cool-down lap while the results come in: **Enter** races again, **F** switches to free practice.
+
+The rivals (Nova Reyes, Kai Lindqvist, Mara Okafor, Theo Brandt and Suki Tanaka, all fictional) are g001's bot drivers adapted for this car: they follow a racing line at a speed set by the corners ahead, pass and follow in traffic, learn where they can push harder each lap, make the odd mistake, and recover from spins. They use the thrusters too: boost on the straights, hop a slow car in their lane, and swing through the air canisters when their tank runs low. Rivals well behind you push a little harder and ones far ahead ease off slightly, so the racing stays close. Cars collide with each other.
 
 ## Controls
 
@@ -75,10 +81,11 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Thrusters and air tank; air canisters | `src/sim/jets.ts`, `src/sim/canisters.ts` |
 | Renderer, presets, lighting, surfaces | `src/render/renderer.ts`, `graphics.ts`, `environment.ts`, `surfaces.ts` |
 | Scenery, car body and model, skid marks, cameras | `src/render/trackScene.ts`, `carBody.ts`, `carModel.ts`, `skids.ts`, `cameras.ts` |
-| Vapour puffs and jet cones; canisters | `src/render/vapour.ts`, `canisterScene.ts` |
+| Vapour puffs and jet cones; canisters; fast copies of the car model for rivals | `src/render/vapour.ts`, `canisterScene.ts`, `cloneModel.ts` |
 | Input, audio, crash recovery | `src/core/` |
 | HUD and overlays | `src/ui/hud.ts` |
-| Game loop (120 Hz physics, interpolated rendering), laps | `src/game.ts` |
+| Racing line and speed profile; AI rivals; the race (grid, laps, positions) | `src/sim/racingLine.ts`, `rival.ts`, `race.ts` |
+| Game loop (120 Hz physics, interpolated rendering), laps, race flow | `src/game.ts` |
 
 Physics runs at a fixed 120 Hz and the renderer interpolates between steps, so the car looks smooth at any frame rate. There are no image or audio files: textures are drawn on canvases and every sound is synthesised with Web Audio.
 
@@ -87,7 +94,8 @@ Physics runs at a fixed 120 Hz and the renderer interpolates between steps, so t
 ```bash
 npm run typecheck     # TypeScript
 npm run sim-test      # headless handling test: 0-100, top speed, braking, grip, boost, hops,
-                      # air control, and laps with a line-following and a keyboard-style driver
+                      # air control, laps with a line-following and a keyboard-style driver,
+                      # and a full 3-lap race against the rivals
 npm run track-check   # circuit length, corner radii and clearances
 npm run build         # production build in dist/
 npm run browser-test  # (with `npm run dev` running) drives the real game in headless Chromium

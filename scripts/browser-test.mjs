@@ -1,5 +1,5 @@
-// Drives the real game in headless Chromium: title screen, start lights, keyboard driving and
-// the autopilot demo. Saves screenshots to test-results/ and fails on page errors or if the car
+// Drives the real game in headless Chromium: title screen, start lights, keyboard driving, the
+// race field, boost and hop, and the autopilot demo. Saves screenshots to test-results/ and fails on page errors or if the car
 // doesn't move.   node scripts/browser-test.mjs [url]   (start `npm run dev` or `npm run preview` first)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -43,6 +43,22 @@ console.log(`after launch: ${(s1.speed * 3.6).toFixed(0)} km/h, moved ${Math.hyp
 check(s1.speed > 15, 'car accelerates under keyboard throttle');
 await page.keyboard.down('KeyS'); await page.waitForTimeout(6000); await page.keyboard.up('KeyS');
 check((await state()).speed < s1.speed - 10, 'car brakes');
+
+// race and thrusters: five rivals on the grid, boost drains the tank, a hop costs air
+check(await page.evaluate(() => window.__game.race?.entrants.length === 6 && !document.querySelector('.standings').classList.contains('hidden')), 'race: six cars and the standings panel');
+const tank0 = await page.evaluate(() => window.__game.jets.tank);
+await page.keyboard.down('KeyW'); await page.keyboard.down('ShiftLeft');
+await page.waitForTimeout(3000);
+await page.keyboard.up('ShiftLeft');
+const tank1 = await page.evaluate(() => window.__game.jets.tank);
+await page.keyboard.press('KeyE');
+await page.waitForTimeout(2500);
+await page.screenshot({ path: 'test-results/4b-hop.png' });
+await page.keyboard.up('KeyW');
+const tank2 = await page.evaluate(() => window.__game.jets.tank);
+console.log(`air tank: ${(tank0 * 100).toFixed(0)}% -> boost ${(tank1 * 100).toFixed(0)}% -> hop ${(tank2 * 100).toFixed(0)}%`);
+check(tank1 < tank0 - 0.02, 'boost uses air');
+check(tank2 < tank1 - 0.1, 'hop uses air');
 
 // cameras
 for (let k = 1; k <= 3; k++) { await page.keyboard.press('KeyC'); await page.waitForTimeout(500); await page.screenshot({ path: `test-results/5-camera-${k}.png` }); }
