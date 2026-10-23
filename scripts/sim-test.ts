@@ -10,6 +10,9 @@ import { Autopilot } from '../src/sim/autopilot';
 import { updateSurface } from '../src/sim/surface';
 import { Terrain } from '../src/sim/terrain';
 import { buildWorld, initPhysics, PHYSICS_DT } from '../src/sim/world';
+import { Jets, JETS, type JetInputs } from '../src/sim/jets';
+import { Canisters } from '../src/sim/canisters';
+import { Race, RACE_LAPS } from '../src/sim/race';
 
 await initPhysics();
 const dt = PHYSICS_DT;
@@ -57,6 +60,69 @@ const check = (ok: boolean, msg: string) => { console.log(`${ok ? '  ok ' : 'FAI
   }
   console.log(`skidpad: ${(maxLat / 9.81).toFixed(2)} g at ${kmh(car.speed)} km/h`);
   check(maxLat / 9.81 > 0.9, 'over 0.9 g on the skidpad');
+}
+
+// ---- thrusters on a flat pad: boost, hop, air control
+{
+  const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+  world.timestep = dt;
+  world.createCollider(RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, -0.5, 0));
+  const car = new Car(world, 0, 0, -2500, 0);
+  const jets = new Jets();
+  const none = { boost: false, hop: false, airRoll: false };
+  const run = (inp: CarInputs, j: JetInputs, until: (t: number) => boolean) => {
+    let t = 0;
+    while (!until(t) && t < 60) { car.step(inp); jets.step(car, inp, j); world.step(); t += dt; }
+    return t;
+  };
+  const idle = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+  run(idle, none, t => t > 1);
+  const t100 = run({ ...idle, throttle: 1 }, { ...none, boost: true }, () => car.speed >= 100 / 3.6);
+  console.log(`boosted 0-100 km/h ${t100.toFixed(2)} s, tank ${(jets.tank * 100).toFixed(0)}%`);
+  check(t100 < 2.1, 'boost: 0-100 km/h under 2.1 s');
+  run({ ...idle, throttle: 1 }, { ...none, boost: true }, () => jets.tank <= 0);
+  const vMax = car.speed;
+  console.log(`boost until empty: ${kmh(vMax)} km/h`);
+  check(jets.tank === 0 && vMax < JETS.boostMaxSpeed + 1, 'boost drains the tank and stays under its speed cap');
+
+  // hop from rest with a full tank: height and air time
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run(idle, none, t => t > 1);
+  const y0 = car.body.translation().y;
+  let top = y0, air = 0;
+  car.step(idle); jets.step(car, idle, { ...none, hop: true }); world.step();
+  check(jets.hopped, 'hop fires when grounded');
+  run(idle, none, t => { top = Math.max(top, car.body.translation().y); if (car.airborne) air += dt; return t > 3; });
+  console.log(`hop: ${(top - y0).toFixed(2)} m high, ${air.toFixed(2)} s in the air, tank ${(jets.tank * 100).toFixed(0)}%`);
+  check(top - y0 > 1.4 && top - y0 < 3.2, 'hop height between 1.4 and 3.2 m');
+  check(air > 0.8, 'hop gives at least 0.8 s of air time');
+
+  // hop at speed holding pitch for most of the jump: a front flip, landed by the driving help
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run({ ...idle, throttle: 1 }, none, () => car.speed > 25);
+  car.step(idle); jets.step(car, idle, { ...none, hop: true }); world.step();
+  const events: string[] = [];
+  let t = 0, flipped = false;
+  while (t < 4) {
+    const inp = { ...idle, throttle: car.airborne && t < 0.95 ? 1 : 0 };
+    car.step(inp); jets.step(car, inp, none); world.step(); t += dt;
+    events.push(...jets.events);
+    if (car.axes().up.y < -0.3) flipped = true;
+    if (t > 0.3 && !car.airborne && events.length) break;
+  }
+  run(idle, none, t => t > 2);
+  console.log(`air control: ${flipped ? 'went over' : 'did not rotate'}, events ${events.join(', ') || '-'}, upright ${car.axes().up.y.toFixed(2)}`);
+  check(flipped, 'holding pitch in the air rotates the car past upside down');
+
+  // throttle and steering already held at take-off don't pitch or yaw the car
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run({ ...idle, throttle: 1 }, none, () => car.speed > 40);
+  const held = { ...idle, throttle: 1, steer: 0.5 };
+  car.step(held); jets.step(car, held, { ...none, hop: true }); world.step();
+  let minUp = 1, yaw = 0;
+  run(held, none, t => { minUp = Math.min(minUp, car.axes().up.y); if (car.airborne) yaw += Math.abs(car.yawRate) * dt; return t > 0.2 && !car.airborne || t > 3; });
+  console.log(`hop holding throttle and steering: lowest up ${minUp.toFixed(2)}, yaw in the air ${(yaw * 57.3).toFixed(0)}°`);
+  check(minUp > 0.9 && yaw < 0.3, 'inputs held through a hop keep the car level');
 }
 
 // ---- laps of the circuit
@@ -112,4 +178,43 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
     check(r.wallHits <= 2, `${driver}/${help}: at most 2 wall hits`);
   }
 }
+// ---- a race against the AI rivals, with the line-following driver in the player's car
+{
+  const world = buildWorld(track, terrain);
+  const canisters = new Canisters(track);
+  const car = new Car(world, 0, 0, 0, 0), jets = new Jets();
+  const race = new Race(track, world, canisters, car, jets);
+  const pilot = new Autopilot(track);
+  pilot.keyboard = true; pilot.aggression = 1.06;
+  const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
+  for (let k = 0; k < 240; k++) { car.step(hold); race.stepRivals(); world.step(); race.afterStep(); }
+  race.go();
+  const boost = new Map<string, number>(), air = new Map<string, number>();
+  let t = 0;
+  while (t < 300 && !race.allFinished) {
+    const p = race.player;
+    updateSurface(car, track, p.hint);
+    const inp = applyDrivingHelp('easy', pilot.drive(car, p.hint, p.s, dt), car);
+    car.step(inp); jets.step(car, inp, { boost: false, hop: false, airRoll: false });
+    race.stepRivals(); world.step(); canisters.step(dt); race.afterStep(); t += dt;
+    for (const e of race.rivals) {
+      if (e.jets.boosting) boost.set(e.name, (boost.get(e.name) ?? 0) + dt);
+      if (e.gotAir) air.set(e.name, (air.get(e.name) ?? 0) + e.gotAir);
+    }
+  }
+  for (const e of race.standings) {
+    console.log(`P${e.pos} ${e.name.padEnd(14)} ${e.finishTime?.toFixed(1) ?? 'dnf'} s, best lap ${e.bestLap?.toFixed(1) ?? '-'} s` +
+      (e.driver ? `, boost ${(boost.get(e.name) ?? 0).toFixed(1)} s, air picked up ${((air.get(e.name) ?? 0) * 100).toFixed(0)}%, resets ${e.resets}` : ''));
+  }
+  const rivals = race.rivals;
+  const times = race.entrants.map(e => e.finishTime ?? Infinity);
+  check(race.allFinished, `race: everyone finishes ${RACE_LAPS} laps`);
+  check(Math.max(...times) - Math.min(...times) < 30, 'race: the field finishes within 30 s');
+  check(rivals.reduce((a, e) => a + e.resets, 0) <= 2, 'race: rivals need at most 2 resets');
+  check(rivals.every(e => e.bestLap !== null && e.bestLap > 55 && e.bestLap < 66), 'race: rival lap times between 55 and 66 s');
+  check([...boost.values()].reduce((a, b) => a + b, 0) > 15, 'race: rivals use their boost');
+  check([...air.values()].reduce((a, b) => a + b, 0) > 0.5, 'race: rivals pick up air canisters');
+  world.free();
+}
+
 process.exit(failed ? 1 : 0);

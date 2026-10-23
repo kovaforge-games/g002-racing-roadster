@@ -1,5 +1,6 @@
 // Synthesised audio (no sample files, following g001's approach): an electric motor whine that
-// rises with speed, inverter whistle under load, tyre squeal, wind, kerb rumble and impacts.
+// rises with speed, inverter whistle under load, tyre squeal, wind, kerb rumble and impacts,
+// plus the thrusters: a hiss that drops in pitch as the tank empties, hop blasts and pickups.
 
 class AudioEngine {
   ctx: AudioContext | null = null;
@@ -9,6 +10,7 @@ class AudioEngine {
   private inverter!: { osc: OscillatorNode; gain: GainNode };
   private squeal!: GainNode; private squealF!: BiquadFilterNode;
   private wind!: GainNode; private rumble!: GainNode; private road!: GainNode;
+  private hiss!: GainNode; private hissF!: BiquadFilterNode; private puff!: GainNode;
   muted = false;
 
   /** must be called from a user gesture (iOS requirement) */
@@ -53,6 +55,8 @@ class AudioEngine {
       this.wind = voice('lowpass', 600, 0.6).g;
       this.road = voice('lowpass', 260, 0.8).g;
       this.rumble = voice('lowpass', 90, 1.5).g;
+      const hs = voice('bandpass', 5000, 0.7); this.hiss = hs.g; this.hissF = hs.f;
+      this.puff = voice('highpass', 2600, 0.5).g;
       const silent = ctx.createBufferSource(); silent.buffer = ctx.createBuffer(1, 1, 22050); silent.connect(ctx.destination); silent.start(0);
     }
     if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
@@ -84,6 +88,47 @@ class AudioEngine {
     this.wind.gain.setTargetAtTime(Math.min(0.45, (v / 70) ** 2 * 0.45) * quiet, t, 0.1);
     this.road.gain.setTargetAtTime(Math.min(0.2, v / 70 * 0.2) * quiet, t, 0.1);
     this.rumble.gain.setTargetAtTime(kerb * Math.min(1, v / 10) * 0.9 * quiet, t, 0.03);
+  }
+
+  /** boost 0..1 (rear jets), attitude 0..1 (air control), tank 0..1 */
+  jets(boost: number, attitude: number, tank: number, paused: boolean) {
+    const ctx = this.ctx;
+    if (!ctx || !this.hiss) return;
+    const t = ctx.currentTime, quiet = paused ? 0 : 1;
+    this.hiss.gain.setTargetAtTime(boost * 0.32 * quiet, t, boost > 0 ? 0.02 : 0.08);
+    // lower tank pressure: a lower, breathier hiss
+    this.hissF.frequency.setTargetAtTime(1500 + tank * 4200, t, 0.1);
+    this.puff.gain.setTargetAtTime(attitude * 0.08 * quiet, t, 0.03);
+  }
+
+  /** the hop: a sharp blast of air with a low thump under it */
+  hop() {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = this.noise;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.6;
+    f.frequency.setValueAtTime(3000, now); f.frequency.exponentialRampToValueAtTime(500, now + 0.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.7, now + 0.015); g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(now, Math.random()); src.stop(now + 0.65);
+    this.impact(6);
+  }
+
+  /** an air canister: a quick rising two-note chime */
+  pickup() {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const now = ctx.currentTime;
+    [880, 1320].forEach((freq, k) => {
+      const o = ctx.createOscillator(); o.type = 'triangle';
+      o.frequency.setValueAtTime(freq, now + k * 0.07); o.frequency.exponentialRampToValueAtTime(freq * 1.25, now + k * 0.07 + 0.12);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now + k * 0.07); g.gain.exponentialRampToValueAtTime(0.16, now + k * 0.07 + 0.01); g.gain.exponentialRampToValueAtTime(0.001, now + k * 0.07 + 0.3);
+      o.connect(g); g.connect(this.master);
+      o.start(now + k * 0.07); o.stop(now + k * 0.07 + 0.32);
+    });
   }
 
   /** a dull thump for wall hits, scaled by impact speed (m/s) */

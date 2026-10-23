@@ -15,6 +15,9 @@ export class CameraRig {
   private shake = 0;
   private init = false;
   private initY = false;
+  /** 0..1 rear-jet thrust: widens the view and adds a buzz */
+  boost = 0;
+  private boostK = 0;
 
   reset() { this.init = false; this.initY = false; this.pos.set(0, 0, 0); }
   kick(amount: number) { this.shake = Math.min(1, this.shake + amount); }
@@ -34,10 +37,11 @@ export class CameraRig {
     const fx = Math.sin(h), fz = Math.cos(h);
     const speedK = Math.min(1, Math.abs(f.speed) / 70);
     const onboard = this.mode === 'hood' || this.mode === 'bumper';
-    const fov = (onboard ? 66 : 58) + speedK * 14;
+    this.boostK += (this.boost - this.boostK) * Math.min(1, dt * (this.boost > this.boostK ? 6 : 2));
+    const fov = (onboard ? 66 : 58) + speedK * 14 + this.boostK * 9;
     if (Math.abs(this.cam.fov - fov) > 0.05) { this.cam.fov += (fov - this.cam.fov) * Math.min(1, dt * 3); this.cam.updateProjectionMatrix(); }
     this.shake *= Math.exp(-dt * 6);
-    const sh = this.shake * 0.09 + speedK * speedK * 0.01;
+    const sh = this.shake * 0.09 + speedK * speedK * 0.01 + this.boostK * 0.025;
     const jx = (Math.random() - 0.5) * sh, jy = (Math.random() - 0.5) * sh;
 
     if (!onboard) {
