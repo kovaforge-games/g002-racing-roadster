@@ -52,7 +52,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; use
 @keyframes blink { 50% { opacity: 0.35; } }
 .air .gain { position: absolute; top: -20px; font-size: 13px; font-weight: 800; color: var(--accent); opacity: 0; transition: opacity 0.2s, transform 0.6s; }
 .air .gain.show { opacity: 1; transform: translateY(-8px); }
-.info { position: absolute; top: 20px; right: 20px; font-size: 12px; color: var(--dim); letter-spacing: 1px; text-shadow: 0 1px 3px #000a; }
+.standings { top: 16px; right: 16px; padding: 10px 14px 10px; min-width: 210px; }
+.standings.hidden { display: none; }
+.standings .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.standings .pos { font-size: 34px; font-weight: 800; letter-spacing: -1px; }
+.standings .pos small { font-size: 16px; color: var(--dim); font-weight: 700; margin-left: 2px; }
+.standings .lapof { font-size: 12px; letter-spacing: 3px; color: var(--accent); font-weight: 700; }
+.standings .row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 2px 0; color: var(--dim); }
+.standings .row b { width: 14px; text-align: right; color: var(--fg); }
+.standings .row i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #fff6; flex: none; }
+.standings .row span { flex: 1; white-space: nowrap; }
+.standings .row em { font-style: normal; font-size: 12px; }
+.standings .row.you { color: var(--fg); font-weight: 700; }
+.standings .row.you span { color: var(--accent); }
+.overlay.results { background: rgba(5, 8, 12, 0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.results h2 { font-size: 40px; margin: 0; letter-spacing: 2px; }
+.results .sub { color: var(--dim); letter-spacing: 2px; }
+.results table { border-collapse: collapse; font-size: 16px; margin: 10px 0; font-variant-numeric: tabular-nums; }
+.results td { padding: 6px 14px; border-bottom: 1px solid var(--edge); text-align: left; }
+.results td:last-child, .results td:nth-child(4) { text-align: right; color: var(--dim); }
+.results tr.you td { color: var(--accent); font-weight: 700; }
+.results p { color: var(--dim); }
+.info { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 12px; color: var(--dim); letter-spacing: 1px; text-shadow: 0 1px 3px #000a; }
 
 .toast { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -10px); font-size: 30px; font-weight: 800; letter-spacing: 2px;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6); opacity: 0; transition: opacity 0.2s, transform 0.2s; white-space: nowrap; }
@@ -94,4 +115,5 @@ h2 { margin: 0 0 8px; letter-spacing: 3px; }
   .dash { transform: scale(0.8); transform-origin: bottom right; }
   .air { transform: scale(0.8); transform-origin: bottom right; right: 222px; }
   .timing { transform: scale(0.85); transform-origin: top left; }
+  .standings { transform: scale(0.75); transform-origin: top right; }
 }

@@ -41,6 +41,8 @@ export interface Entrant extends CarView {
   gotAir: number;
   /** times this rival was put back on the road */
   resets: number;
+  /** brake lights */
+  braking: boolean;
 }
 
 export class Race {
@@ -58,7 +60,7 @@ export class Race {
     this.profile = speedProfile(track, 1.55);
     const blank = (name: string, car: Car, jets: Jets, driver: RivalDriver | null, paint: number): Entrant => ({
       name, car, jets, driver, paint, s: 0, lateral: 0, speed: 0, hint: -1, lap: 0, passedHalf: false, prevS: 0,
-      dist: 0, pos: 0, finished: false, finishTime: null, lapStart: null, bestLap: null, flipT: 0, gotAir: 0, resets: 0,
+      dist: 0, pos: 0, finished: false, finishTime: null, lapStart: null, bestLap: null, flipT: 0, gotAir: 0, resets: 0, braking: false,
     });
     this.player = blank('You', playerCar, playerJets, null, 0);
     for (let k = 0; k < rivals; k++) {
@@ -110,6 +112,7 @@ export class Race {
       const others = this.entrants.filter(o => o !== e);
       const { inp, jet } = e.driver.drive(e, others, e.jets, this.canisters, dt, launching);
       const assisted = applyDrivingHelp('medium', inp, e.car);
+      e.braking = assisted.brake > 0.1 && e.car.speed > 0.5;
       e.car.step(assisted);
       e.jets.step(e.car, assisted, jet, dt);
     }

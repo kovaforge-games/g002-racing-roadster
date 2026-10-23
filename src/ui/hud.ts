@@ -1,4 +1,5 @@
-// Heads-up display: speed and motor power, lap timing, a minimap, messages and overlays.
+// Heads-up display: speed and motor power, the air tank, lap timing, race position and
+// standings, a minimap, messages and overlays (title, help, pause, results).
 import type { Track } from '../sim/track';
 
 export function formatTime(t: number | null) {
@@ -28,6 +29,8 @@ export class Hud {
   private info: HTMLElement;
   private air: HTMLElement; private airFill: HTMLElement; private airPct: HTMLElement; private hopDot: HTMLElement; private airGain: HTMLElement;
   private gainTimer = 0;
+  private standings: HTMLElement; private posEl: HTMLElement; private lapOf: HTMLElement; private rows: HTMLElement;
+  readonly results: HTMLElement;
 
   constructor(private track: Track) {
     document.body.appendChild(this.root);
@@ -70,6 +73,13 @@ export class Hud {
     this.map = el('canvas', 'map', mapWrap);
     this.drawMapBg();
 
+    // race position and standings, top right
+    this.standings = el('div', 'panel standings hidden', this.root);
+    const head = el('div', 'head', this.standings);
+    this.posEl = el('div', 'pos', head);
+    this.lapOf = el('div', 'lapof', head);
+    this.rows = el('div', 'list', this.standings);
+
     this.toast = el('div', 'toast', this.root);
     this.lights = el('div', 'startlights', this.root);
     for (let k = 0; k < 5; k++) this.lightDots.push(el('div', 'light', this.lights));
@@ -79,7 +89,7 @@ export class Hud {
     this.title.innerHTML = `
       <div class="brand">ROADSTER</div>
       <div class="tag">Electric. Instant. Yours to drive.</div>
-      <div class="prompt">Press any key or click to drive</div>
+      <div class="prompt">Press any key or click to race · F for free practice</div>
       <div class="keys">
         <span><b>W A S D</b> / arrows drive</span><span><b>Shift</b> boost</span><span><b>E</b> hop</span><span><b>Space</b> handbrake</span><span><b>C</b> camera</span>
         <span><b>R</b> reset</span><span><b>P</b> paint</span><span><b>T</b> time of day</span><span><b>H</b> help</span>
@@ -108,6 +118,7 @@ export class Hud {
       </table>
       <p>Boost, hops and air control all use the air tank. Drive through the glowing canisters to refill it.</p>
       <p>Press H to close</p>`;
+    this.results = el('div', 'overlay results hidden', document.body);
     this.paused = el('div', 'overlay paused hidden', document.body);
     this.paused.innerHTML = '<h2>Paused</h2><p>Press Esc to continue</p>';
   }
@@ -154,7 +165,8 @@ export class Hud {
     return [size - (x * this.mapScale + this.mapOx), size - (z * this.mapScale + this.mapOz)];
   }
 
-  update(dt: number, o: { speed: number; powerKw: number; lap: number; current: number | null; last: number | null; best: number | null; x: number; z: number; heading: number; help: string; paint: string }) {
+  update(dt: number, o: { speed: number; powerKw: number; lap: number; current: number | null; last: number | null; best: number | null; x: number; z: number; heading: number; help: string; paint: string;
+    others?: { x: number; z: number; color: string }[] }) {
     const kmh = Math.abs(o.speed) * 3.6;
     this.speed.textContent = kmh.toFixed(0);
     this.unit.textContent = o.speed < -0.5 ? 'KM/H · R' : 'KM/H';
@@ -162,7 +174,7 @@ export class Hud {
     this.powerArc.setAttribute('d', p > 0.005 ? this.arcPath(0, p) : 'M 0 0');
     this.regenArc.setAttribute('d', p < -0.005 ? this.arcPath(p, 0) : 'M 0 0');
     this.power.textContent = `${o.powerKw >= 0 ? '' : 'REGEN '}${Math.abs(o.powerKw).toFixed(0)} kW`;
-    this.lap.textContent = o.lap > 0 ? `LAP ${o.lap}` : 'OUT LAP';
+    if (this.standings.classList.contains('hidden')) this.lap.textContent = o.lap > 0 ? `LAP ${o.lap}` : 'OUT LAP';
     this.current.textContent = formatTime(o.current);
     this.last.textContent = formatTime(o.last);
     this.best.textContent = formatTime(o.best);
@@ -171,6 +183,11 @@ export class Hud {
     const c = this.map.getContext('2d')!;
     c.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     c.clearRect(0, 0, 220, 220);
+    for (const r of o.others ?? []) {
+      const [rx, ry] = this.mapXY(r.x, r.z);
+      c.fillStyle = r.color; c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1.5;
+      c.beginPath(); c.arc(rx, ry, 4, 0, Math.PI * 2); c.fill(); c.stroke();
+    }
     const [x, y] = this.mapXY(o.x, o.z);
     c.save(); c.translate(x, y); c.rotate(-o.heading);
     c.fillStyle = '#ff3b47'; c.strokeStyle = '#fff'; c.lineWidth = 1.5;
@@ -178,6 +195,25 @@ export class Hud {
     c.restore();
 
     if (this.toastTimer > 0 && (this.toastTimer -= dt) <= 0) this.toast.classList.remove('show');
+  }
+
+  /** race position and the field in order; null hides the panel (free practice) */
+  setRace(r: { pos: number; total: number; lap: number; laps: number; field: { pos: number; name: string; color: string; you: boolean; gap: string }[] } | null) {
+    this.standings.classList.toggle('hidden', !r);
+    if (!r) return;
+    this.posEl.innerHTML = `P${r.pos}<small>/${r.total}</small>`;
+    this.lapOf.textContent = r.lap === 0 ? 'GRID' : r.lap > r.laps ? 'FINISHED' : `LAP ${r.lap}/${r.laps}`;
+    this.lap.textContent = r.lap === 0 ? 'START' : r.lap > r.laps ? 'FINISHED' : `LAP ${r.lap}/${r.laps}`;
+    const html = r.field.map(f => `<div class="row${f.you ? ' you' : ''}"><b>${f.pos}</b><i style="background:${f.color}"></i><span>${f.name}</span><em>${f.gap}</em></div>`).join('');
+    if (this.rows.innerHTML !== html) this.rows.innerHTML = html;
+  }
+
+  /** the results table after the player crosses the line */
+  showResults(title: string, rows: { pos: number; name: string; time: string; best: string; you: boolean }[]) {
+    this.results.innerHTML = `<h2>${title}</h2><div class="sub">RESULTS</div><table>${rows.map(r =>
+      `<tr class="${r.you ? 'you' : ''}"><td>${r.pos}</td><td>${r.name}</td><td></td><td>${r.time}</td><td>best ${r.best}</td></tr>`).join('')}</table>
+      <p>Enter to race again · F for free practice</p>`;
+    this.results.classList.remove('hidden');
   }
 
   /** air tank 0..1, whether the rear jets are firing and whether a hop is ready */
