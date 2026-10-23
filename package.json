@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sim-test": "tsx scripts/sim-test.ts",
+    "track-check": "tsx scripts/track-check.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
