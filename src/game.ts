@@ -1,6 +1,6 @@
 // The game: builds the world, runs physics at a fixed 120 Hz with interpolated rendering,
-// and handles the start lights, lap timing, thrusters and air pickups, resets and the player's
-// options.
+// and handles the start lights, lap timing, thrusters and air pickups, resets, the player's
+// options and party races.
 import * as THREE from 'three';
 import { Track } from './sim/track';
 import { Terrain } from './sim/terrain';
@@ -20,9 +20,13 @@ import { CameraRig } from './render/cameras';
 import { SkidMarks } from './render/skids';
 import { Vapour, JetFx } from './render/vapour';
 import { CanisterScene } from './render/canisterScene';
+import { RemoteCars } from './render/remoteCars';
+import { PAINTS } from './render/carModel';
 import { input, type DriveInput } from './core/input';
 import { audio } from './core/audio';
-import { Hud } from './ui/hud';
+import { Hud, formatTime } from './ui/hud';
+import { PartyUi, type PartyGame } from './ui/partyUi';
+import type { PartyClient } from './net/party';
 
 const TIMES: TimeOfDay[] = ['noon', 'sunset', 'night', 'morning'];
 const HELP_LABEL: Record<DrivingHelp, string> = { easy: 'Easy', medium: 'Medium', off: 'Off' };
@@ -31,6 +35,10 @@ const JET_MESSAGES: Partial<Record<JetEvent, [string, number]>> = {
   launch: ['Perfect launch!', 1.4], flip: ['Flip!', 1.2], roll: ['Barrel roll!', 1.2], spin: ['360!', 1.2],
   'clean-landing': ['Clean landing', 1], empty: ['Air tank empty', 1.6],
 }; // the car starts 32 m before the line, so lap 1 is a flying lap
+/** party grid: two by two, staggered, behind the solo start spot */
+const GRID_GAP = 4.5, GRID_SIDE = 2.4;
+/** car states sent to the party per second */
+const NET_RATE = 20;
 
 function store(): Storage | null { try { return localStorage; } catch { return null; } }
 
@@ -38,7 +46,7 @@ type Phase = 'title' | 'lights' | 'driving';
 
 export interface GameOptions { quality?: Quality; safe?: boolean; tod?: TimeOfDay; autodrive?: boolean }
 
-export class Game {
+export class Game implements PartyGame {
   readonly track = new Track();
   readonly terrain: Terrain;
   readonly world;
@@ -79,6 +87,13 @@ export class Game {
   private curr = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private titleAngle = 0;
   private airHeading: number | null = null;
+  // party races
+  readonly partyUi: PartyUi;
+  party: PartyClient | null = null;
+  private remote: RemoteCars;
+  /** the current party race: lights and start come from the server, time is wall-clock */
+  race: { laps: number; slot: number; startedAt: number | null; finished: boolean } | null = null;
+  private netT = 0;
   /** test hook: a fixed camera instead of the driving rig */
   debugCam: { pos: [number, number, number]; target: [number, number, number] } | null = null;
 
@@ -126,7 +141,11 @@ export class Game {
     // let the car settle on its springs before the first frame
     for (let k = 0; k < 120; k++) { this.car.step({ steer: 0, throttle: 0, brake: 0, handbrake: true }); this.world.step(); }
     this.snapshot(this.curr); this.snapshot(this.prev);
+    this.remote = new RemoteCars(this.car.wheels.reduce((a, w) => a + w.suspension, 0) / 4);
+    this.remote.setNight(this.env.preset.night);
+    this.scene.add(this.remote.group);
     this.hud.ready();
+    this.partyUi = new PartyUi(this, this.hud.title, this.hud.paused);
     input.onAny = () => this.start();
   }
 
@@ -136,12 +155,13 @@ export class Game {
     this.env = new Environment(this.scene, this.renderer.gl, tod, this.renderer.quality);
     this.renderer.setBloom(this.env.preset.night ? 0.8 : 0.12, this.env.preset.night ? 0.85 : 1.6);
     this.model.setNight(this.env.preset.night);
+    this.remote?.setNight(this.env.preset.night);
     this.vapour.setNight(this.env.preset.night);
   }
 
   start() {
     audio.unlock();
-    if (this.phase !== 'title') return;
+    if (this.phase !== 'title' || this.partyUi.active || this.partyUi.open) return;
     this.phase = 'lights';
     this.lightsT = 0;
     this.lightsHold = 0.4 + Math.random() * 0.8;
@@ -162,6 +182,105 @@ export class Game {
     into.p.set(t.x, t.y, t.z); into.q.set(r.x, r.y, r.z, r.w);
   }
 
+  /** put the car at a standing start: the solo spot, or a party grid slot */
+  private toGrid(slot = -1) {
+    const s = slot < 0 ? GRID_S : GRID_S - slot * GRID_GAP;
+    const g = this.track.pointAt(s, slot < 0 ? 0 : (slot % 2 ? -GRID_SIDE : GRID_SIDE));
+    this.car.place(g.x, g.y, g.z, this.track.headingAt(s));
+    this.jets.reset();
+    this.skids.clear();
+    this.rig.reset();
+    const near = this.track.nearest(g.x, g.z);
+    this.hint = near.i; this.prevS = near.s;
+    this.lap = 0; this.lapStart = null; this.lastLap = null; this.passedHalf = false;
+    this.hud.showDelta(null);
+    this.snapshot(this.curr); this.snapshot(this.prev);
+  }
+
+  get paintIndex() { return Math.max(0, PAINTS.findIndex(p => p.name === this.model.paintName)); }
+
+  setPaint(n: number) { for (let k = 0; k < PAINTS.length && this.paintIndex !== n; k++) this.model.nextPaint(); }
+
+  message(text: string, seconds?: number) { this.hud.message(text, seconds); }
+
+  closeMenu() { if (this.race) this.hud.paused.classList.add('hidden'); else if (this.paused) { this.paused = false; this.hud.paused.classList.add('hidden'); } }
+
+  /** leave solo driving (or the pause screen) for the title, ready for a party */
+  toTitle() {
+    this.paused = false;
+    this.hud.paused.classList.add('hidden');
+    if (this.phase === 'title') return;
+    this.phase = 'title';
+    this.pilot = null;
+    this.hud.setLights(-1); this.trackScene.setStartLights(0);
+    this.toGrid();
+  }
+
+  joinedParty(pc: PartyClient) {
+    this.party = pc;
+    document.body.classList.add('in-party');
+    this.hud.title.classList.add('hidden');
+  }
+
+  leftParty() {
+    this.party = null;
+    this.race = null;
+    this.remote.clear();
+    this.hud.setStandings(null);
+    document.body.classList.remove('in-party');
+    this.toTitle();
+    this.hud.title.classList.remove('hidden');
+  }
+
+  beginPartyRace(slot: number, laps: number) {
+    audio.unlock();
+    this.paused = false; this.hud.paused.classList.add('hidden');
+    this.pilot = null;
+    this.race = { laps, slot, startedAt: null, finished: false };
+    this.toGrid(slot);
+    this.phase = 'lights';
+    this.hud.title.classList.add('hidden');
+    this.hud.setLights(0); this.trackScene.setStartLights(0);
+    this.hud.message(`${laps} lap${laps > 1 ? 's' : ''}`, 1.6);
+  }
+
+  partyLights(n: number) { this.hud.setLights(n); this.trackScene.setStartLights(n); }
+
+  partyGo() {
+    if (!this.race || this.phase !== 'lights') return;
+    this.phase = 'driving';
+    this.race.startedAt = performance.now();
+    this.jets.armLaunch();
+    this.partyLights(0);
+    this.hud.message('GO!', 1.2);
+    setTimeout(() => this.hud.setLights(-1), 900);
+  }
+
+  endPartyRace() {
+    this.race = null;
+    this.party?.snapshots.clear();
+    this.remote.clear();
+    this.hud.setStandings(null);
+    this.phase = 'title';
+    this.pilot = null;
+    this.paused = false; this.hud.paused.classList.add('hidden');
+    this.hud.setLights(-1); this.trackScene.setStartLights(0);
+    this.toGrid();
+  }
+
+  /** race progress in metres, for standings: negative on the grid, then laps × length */
+  private raceDist(s: number) { return this.lap > 0 ? (this.lap - 1) * this.track.total + s : s - this.track.total; }
+
+  private finishRace() {
+    const r = this.race!;
+    r.finished = true;
+    const time = (performance.now() - (r.startedAt ?? performance.now())) / 1000;
+    this.party?.sendFinish(time, this.bestLap);
+    this.hud.message(`Finished · ${formatTime(time)}`, 3);
+    // a cool-down lap on the autopilot while the others finish
+    this.pilot = new Autopilot(this.track);
+  }
+
   resetCar() {
     const near = this.track.nearest(this.curr.p.x, this.curr.p.z, this.hint);
     const s = near.s - 5;
@@ -174,10 +293,14 @@ export class Game {
   }
 
   private handleActions() {
-    if (input.consume('pause') && this.phase !== 'title') { this.paused = !this.paused; this.hud.paused.classList.toggle('hidden', !this.paused); }
+    if (input.consume('pause') && this.phase !== 'title') {
+      // a party race keeps running: Esc only opens the menu (with Leave party)
+      if (this.race) this.hud.paused.classList.toggle('hidden');
+      else { this.paused = !this.paused; this.hud.paused.classList.toggle('hidden', !this.paused); }
+    }
     if (input.consume('help')) this.hud.help.classList.toggle('hidden');
     if (input.consume('camera')) { this.rig.next(); this.hud.message(`Camera: ${this.rig.mode}`, 1.2); }
-    if (input.consume('paint')) { this.model.nextPaint(); this.hud.message(this.model.paintName, 1.4); }
+    if (input.consume('paint')) { this.model.nextPaint(); this.hud.message(this.model.paintName, 1.4); this.party?.setProfile({ paint: this.paintIndex }); }
     if (input.consume('time')) { this.todIndex = (this.todIndex + 1) % TIMES.length; this.buildEnvironment(); this.hud.message(`Time of day: ${TIMES[this.todIndex]}`, 1.4); }
     if (input.consume('mute')) this.hud.message(audio.toggleMute() ? 'Sound off' : 'Sound on', 1.2);
     if (input.consume('reset') && this.phase === 'driving' && !this.paused) { this.resetCar(); this.hud.message('Reset', 1); }
@@ -221,7 +344,10 @@ export class Game {
         if (this.bestLap === null || t < this.bestLap) { this.bestLap = t; store()?.setItem('rd-best', String(t)); this.hud.message('Best lap!', 2.5); }
         this.hud.showDelta(delta);
       }
-      if (this.lapStart === null || this.passedHalf) { this.lap++; this.lapStart = this.simTime; this.passedHalf = false; }
+      if (this.lapStart === null || this.passedHalf) {
+        this.lap++; this.lapStart = this.simTime; this.passedHalf = false;
+        if (this.race && !this.race.finished && this.lap > this.race.laps) this.finishRace();
+      }
     } else if (this.prevS < 80 && s > this.track.total - 80 && this.lapStart !== null) {
       // reversed back over the line: this lap no longer counts
       this.passedHalf = false;
@@ -234,13 +360,14 @@ export class Game {
   }
 
   frame(now = performance.now()) {
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+    // a frame timestamp can predate a long task (such as building the world): never step backwards
+    const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
     this.last = now;
     this.handleActions();
     this.inp = input.poll(dt);
     if (this.inp.hop) this.hopQueued = true;
 
-    if (this.phase === 'lights' && !this.paused) {
+    if (this.phase === 'lights' && !this.paused && !this.race) {
       this.lightsT += dt;
       const lit = Math.min(5, Math.floor(this.lightsT / 0.8));
       if (this.lightsT < 4.0 + this.lightsHold) { this.hud.setLights(lit); this.trackScene.setStartLights(lit); }
@@ -292,6 +419,7 @@ export class Game {
     } else this.rig.update(focus, dt, this.inp.lookBack);
     if (this.debugCam) { this.rig.cam.position.set(...this.debugCam.pos); this.rig.cam.lookAt(...this.debugCam.target); }
     this.env.follow(focus.x, focus.y, focus.z);
+    const others = this.party && this.race ? this.netFrame(dt) : [];
 
     const slip = Math.max(...this.car.wheels.map(w => w.slip));
     audio.update(this.car.speed, Math.max(-1, Math.min(1, this.car.powerKw / 300)), slip, this.kerb, this.paused || this.phase === 'title');
@@ -301,8 +429,34 @@ export class Game {
       speed: this.car.speed, powerKw: this.car.powerKw, lap: this.lap,
       current: this.lapStart !== null ? this.simTime - this.lapStart : null, last: this.lastLap, best: this.bestLap,
       x: focus.x, z: focus.z, heading: e.y, help: HELP_LABEL[this.help], paint: this.model.paintName,
+      lapText: this.race ? (this.race.finished ? 'FINISHED' : this.lap > 0 ? `LAP ${this.lap}/${this.race.laps}` : 'GRID') : undefined,
+      others,
     });
     this.renderer.render(this.scene, this.rig.cam);
+  }
+
+  /** party race: send our car at NET_RATE, draw the others, update the standings */
+  private netFrame(dt: number) {
+    const pc = this.party!;
+    const t = this.car.body.translation(), q = this.car.body.rotation();
+    // after the flag the cool-down lap keeps counting, so finishers stay ahead in finishing order
+    const dist = this.raceDist(this.prevS);
+    this.netT += dt;
+    if (this.netT >= 1 / NET_RATE) {
+      this.netT = 0;
+      const braking = this.inp.brake > 0.1 && this.car.speed > 0.5 ? 1 : 0;
+      const r3 = (v: number) => Math.round(v * 1000) / 1000;
+      pc.sendState([r3(t.x), r3(t.y), r3(t.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w), Math.round(dist), r3(this.car.speed), r3(this.car.wheels[0].steer),
+        braking | (this.jets.boosting ? 2 : 0), this.paintIndex]);
+    }
+    const players = pc.lobby?.players ?? [];
+    const others = this.remote.update(pc.snapshots, players, this.rig.cam, dt);
+    const rows = [{ id: pc.id, dist }, ...others.map(o => ({ id: o.id, dist: o.dist }))]
+      .filter(x => x.id === pc.id || players.some(p => p.id === x.id))
+      .sort((a, b) => b.dist - a.dist)
+      .map(x => ({ name: players.find(p => p.id === x.id)?.name ?? 'You', me: x.id === pc.id }));
+    this.hud.setStandings(rows);
+    return others.map(o => ({ x: o.x, z: o.z, heading: o.heading }));
   }
 
   run() {
