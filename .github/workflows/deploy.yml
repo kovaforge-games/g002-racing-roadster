@@ -1,0 +1,39 @@
+# Checks every push and pull request; deploys to https://kovaforge.org/games/g002/ and
+# https://roadster.kovaforge.org on every push to main (same setup as g001).
+# Deploying needs the repository secret CLOUDFLARE_API_TOKEN (see README → Publishing).
+name: Check and deploy
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency: deploy-${{ github.ref }}
+jobs:
+  check-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      DEPLOY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_DISABLED != 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run sim-test
+      - run: npm run build
+      - name: Build and deploy
+        if: ${{ env.DEPLOY == 'true' && env.CLOUDFLARE_API_TOKEN != '' }}
+        run: npm run deploy:kovaforge
+      - name: Skip deploy (no token yet)
+        if: ${{ env.DEPLOY == 'true' && env.CLOUDFLARE_API_TOKEN == '' }}
+        run: echo "::notice::Add the CLOUDFLARE_API_TOKEN repository secret to deploy to kovaforge.org/games/g002"
+      - name: Public check
+        if: ${{ env.DEPLOY == 'true' && env.CLOUDFLARE_API_TOKEN != '' }}
+        run: |
+          sleep 15
+          for u in https://kovaforge.org/games/g002/ https://roadster.kovaforge.org/; do
+            if curl -fsS "$u" | grep -q '<title>Roadster</title>'; then echo "::notice::ok $u serves the game"; else echo "::warning::$u is not serving the game yet"; fi
+          done
