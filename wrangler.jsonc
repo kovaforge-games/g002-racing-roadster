@@ -12,5 +12,8 @@
     { "pattern": "kovaforge.org/games/g002*", "zone_name": "kovaforge.org" },
     { "pattern": "roadster.kovaforge.org", "custom_domain": true }
   ],
-  "workers_dev": true
+  "workers_dev": true,
+  // one Durable Object per multiplayer party (see worker/index.ts)
+  "durable_objects": { "bindings": [{ "name": "PARTY", "class_name": "PartyRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PartyRoom"] }]
 }
