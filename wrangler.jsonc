@@ -1,0 +1,16 @@
+// Deploys the game like g001: https://kovaforge.org/games/g002/ and https://roadster.kovaforge.org
+//   npm run deploy:kovaforge   (or push to main with the CLOUDFLARE_API_TOKEN repository secret set)
+// The route takes precedence over the kovaforge-home Worker for this path only.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "g002-roadster",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "account_id": "5692e8d07cc3db8bb8d81491cfb766b9",
+  "assets": { "directory": "./dist-cf", "binding": "ASSETS", "run_worker_first": true },
+  "routes": [
+    { "pattern": "kovaforge.org/games/g002*", "zone_name": "kovaforge.org" },
+    { "pattern": "roadster.kovaforge.org", "custom_domain": true }
+  ],
+  "workers_dev": true
+}
