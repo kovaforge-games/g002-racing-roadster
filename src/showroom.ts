@@ -1,5 +1,5 @@
 // Showroom: the car alone on a turntable in a studio, lit by soft boxes, to look at up close.
-// Open with ?showroom. Drag to orbit, scroll to zoom; P changes the paint, S raises the spoiler,
+// Open with ?showroom or #showroom. Drag to orbit, scroll to zoom; P changes the paint, S raises the spoiler,
 // N toggles the lights, and Enter goes to the track.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -74,7 +74,7 @@ export class Showroom {
 
     const caption = document.createElement('div');
     caption.className = 'showroom-caption';
-    caption.innerHTML = '<div class="brand small">ROADSTER</div><div class="hint">Drag to look around · scroll to zoom · <b>P</b> paint · <b>S</b> spoiler · <b>N</b> lights · <a href="?">Drive ›</a></div><div class="paint"></div>';
+    caption.innerHTML = '<div class="brand small">ROADSTER</div><div class="hint">Drag to look around · scroll to zoom · <b>P</b> paint · <b>S</b> spoiler · <b>N</b> lights · <a href="#drive">Drive ›</a></div><div class="paint"></div>';
     document.body.appendChild(caption);
     const paintLabel = caption.querySelector('.paint')!;
     paintLabel.textContent = this.model.paintName;
@@ -82,7 +82,7 @@ export class Showroom {
       if (e.code === 'KeyP') { this.model.nextPaint(); paintLabel.textContent = this.model.paintName; }
       if (e.code === 'KeyS') this.setSpoiler(!this.spoiler);
       if (e.code === 'KeyN') { this.night = !this.night; this.model.setNight(this.night); }
-      if (e.code === 'Enter') location.search = '';
+      if (e.code === 'Enter') location.hash = 'drive';
     });
   }
 

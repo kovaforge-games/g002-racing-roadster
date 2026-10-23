@@ -15,7 +15,7 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
-**Showroom:** open `?showroom` (or use the link on the title screen) to see the car on a turntable in a studio. Drag to look around, scroll to zoom, and press P for paint, S for the spoiler, N for the lights and Enter to drive.
+**Showroom:** open `?showroom` or `#showroom` (or use the link on the title screen) to see the car on a turntable in a studio. Drag to look around, scroll to zoom, and press P for paint, S for the spoiler, N for the lights and Enter to drive.
 
 Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic graphics preset, `?tod=morning|noon|sunset|night` picks the time of day, `?autodrive` lets the autopilot drive (a demo lap), and `?safe` starts in safe graphics.
 

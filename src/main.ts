@@ -28,7 +28,9 @@ async function boot() {
   await initPhysics();
   // let the "Loading…" frame paint before the heavy world build
   await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
-  if (params.has('showroom')) {
+  // #showroom works where the query string can't be set (an embedded preview); follow hash links
+  addEventListener('hashchange', () => location.reload());
+  if (params.has('showroom') || location.hash === '#showroom') {
     const room = new Showroom(document.getElementById('app')!, q && ['low', 'medium', 'high', 'ultra'].includes(q) ? q as Quality : 'ultra');
     document.querySelector('.boot')?.remove();
     document.querySelector('.overlay.title')?.remove();

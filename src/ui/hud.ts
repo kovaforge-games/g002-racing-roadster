@@ -72,7 +72,7 @@ export class Hud {
         <span><b>W A S D</b> / arrows drive</span><span><b>Space</b> handbrake</span><span><b>C</b> camera</span>
         <span><b>R</b> reset</span><span><b>P</b> paint</span><span><b>T</b> time of day</span><span><b>H</b> help</span>
       </div>
-      <a class="showroom-link" href="?showroom">See the car in the showroom ›</a>
+      <a class="showroom-link" href="#showroom">See the car in the showroom ›</a>
       <div class="loading">Loading…</div>`;
     this.help = el('div', 'overlay help hidden', document.body);
     this.help.innerHTML = `
