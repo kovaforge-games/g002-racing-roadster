@@ -36,7 +36,10 @@ class InputManager {
   lastDevice: 'keyboard' | 'gamepad' = 'keyboard';
 
   init() {
+    // typing a name or a party code is not driving
+    const typing = (e: Event) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     addEventListener('keydown', e => {
+      if (typing(e)) return;
       if (!e.repeat && PRESS[e.code]) this.pressed.add(PRESS[e.code]);
       this.down.add(e.code);
       this.lastDevice = 'keyboard';
@@ -45,7 +48,8 @@ class InputManager {
     });
     addEventListener('keyup', e => this.down.delete(e.code));
     addEventListener('blur', () => this.down.clear());
-    addEventListener('pointerdown', () => this.onAny?.());
+    // buttons and panels (marked data-ui) handle their own clicks
+    addEventListener('pointerdown', e => { if (!(e.target instanceof Element && e.target.closest('[data-ui]'))) this.onAny?.(); });
   }
 
   private held(keys: string[]) { return keys.some(k => this.down.has(k)); }

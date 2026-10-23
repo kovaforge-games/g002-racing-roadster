@@ -121,7 +121,7 @@ export class Hud {
       <p>Press H to close</p>`;
     this.results = el('div', 'overlay results hidden', document.body);
     this.paused = el('div', 'overlay paused hidden', document.body);
-    this.paused.innerHTML = '<h2>Paused</h2><p>Press Esc to continue</p>';
+    this.paused.innerHTML = '<h2><span class="solo-only">Paused</span><span class="party-only">Menu</span></h2><p>Press Esc to continue</p>';
   }
 
   private arcPath(from: number, to: number) {

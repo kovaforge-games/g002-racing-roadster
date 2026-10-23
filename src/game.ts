@@ -1,6 +1,6 @@
 // The game: builds the world, runs physics at a fixed 120 Hz with interpolated rendering,
-// and handles the start lights, the race against the AI rivals (or free practice), lap timing,
-// thrusters and air pickups, resets and the player's options.
+// and handles the start lights, the race against the AI rivals (or free practice), party races
+// against friends, lap timing, thrusters and air pickups, resets and the player's options.
 import * as THREE from 'three';
 import { Track } from './sim/track';
 import { Terrain } from './sim/terrain';
@@ -24,9 +24,12 @@ import { Vapour, JetFx } from './render/vapour';
 import { CanisterScene } from './render/canisterScene';
 import { cloneModel } from './render/cloneModel';
 import { NameTag } from './render/nameTag';
+import { RemoteCars, paintCss } from './render/remoteCars';
 import { input, type DriveInput } from './core/input';
 import { audio } from './core/audio';
 import { Hud, formatTime } from './ui/hud';
+import { PartyUi, type PartyGame } from './ui/partyUi';
+import type { PartyClient } from './net/party';
 
 const TIMES: TimeOfDay[] = ['noon', 'sunset', 'night', 'morning'];
 const HELP_LABEL: Record<DrivingHelp, string> = { easy: 'Easy', medium: 'Medium', off: 'Off' };
@@ -37,6 +40,10 @@ const JET_MESSAGES: Partial<Record<JetEvent, [string, number]>> = {
 };
 /** average speed round a lap, for turning distance gaps into rough time gaps */
 const GAP_SPEED = 41;
+/** party grid: staggered pairs like the race grid, 5 m apart */
+const partySlot = (k: number) => [-10 - 5 * k, k % 2 ? 2.8 : -2.8] as const;
+/** car states sent to the party per second */
+const NET_RATE = 20;
 
 function store(): Storage | null { try { return localStorage; } catch { return null; } }
 
@@ -50,7 +57,7 @@ interface RivalView { e: Entrant; model: CarModel; fx: JetFx; skids: SkidMarks; 
 
 export interface GameOptions { quality?: Quality; safe?: boolean; tod?: TimeOfDay; autodrive?: boolean }
 
-export class Game {
+export class Game implements PartyGame {
   readonly track = new Track();
   readonly terrain: Terrain;
   readonly world;
@@ -102,6 +109,14 @@ export class Game {
   private curr = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private titleAngle = 0;
   private airHeading: number | null = null;
+  // party races: no AI rivals, the friends' cars come from the server
+  readonly partyUi: PartyUi;
+  party: PartyClient | null = null;
+  private remote: RemoteCars;
+  /** the current party race: lights and start come from the server, time is wall-clock */
+  netRace: { laps: number; slot: number; startedAt: number | null; finished: boolean; finishDist: number } | null = null;
+  private netT = 0;
+  private netPos = new Map<string, number>();
   /** test hook: a fixed camera instead of the driving rig */
   debugCam: { pos: [number, number, number]; target: [number, number, number] } | null = null;
 
@@ -141,20 +156,9 @@ export class Game {
     const g = this.track.pointAt(GRID_S, 0);
     this.car = new Car(this.world, g.x, g.y, g.z, this.track.headingAt(GRID_S));
     this.setHelp(this.help);
-    // the race puts everyone on the grid; the rivals sit there behind the title screen
-    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets);
-    for (const e of this.race.rivals) {
-      // copies of the player's model: building one from scratch takes seconds
-      const model = cloneModel(this.model);
-      model.onSpoiler = undefined; // only the player's spoiler gets a call-out
-      for (let k = 0; k < e.paint; k++) model.nextPaint();
-      model.setNight(this.env.preset.night);
-      const tag = new NameTag(e.name, css(PAINTS[e.paint].color));
-      const view: RivalView = { e, model, fx: new JetFx(model.root, this.vapour), skids: new SkidMarks(), tag, prev: snap(), curr: snap(), hop: false };
-      this.scene.add(model.root, view.skids.mesh, tag.sprite);
-      this.rivals.push(view);
-    }
+    this.race = null;
     this.jetFx = new JetFx(this.model.root, this.vapour);
+    this.buildRace();
     this.resetLaps();
     const best = Number(store()?.getItem('rd-best') ?? 0);
     if (best > 0) this.bestLap = best;
@@ -165,8 +169,36 @@ export class Game {
     this.hud.markAir(this.canisters.list);
     this.hud.setLights(-1);
     this.settle();
+    this.remote = new RemoteCars(this.model, this.car.wheels.reduce((a, w) => a + w.suspension, 0) / 4);
+    this.remote.setNight(this.env.preset.night);
+    this.scene.add(this.remote.group);
     this.hud.ready();
+    this.partyUi = new PartyUi(this, this.hud.title, this.hud.paused);
     input.onAny = code => this.start(code);
+  }
+
+  /** the race puts everyone on the grid; the rivals sit there behind the title screen */
+  private buildRace() {
+    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets);
+    for (const e of this.race.rivals) {
+      // copies of the player's model: building one from scratch takes seconds
+      const model = cloneModel(this.model);
+      model.onSpoiler = undefined; // only the player's spoiler gets a call-out
+      for (let k = 0; k < PAINTS.length && model.paintName !== PAINTS[e.paint].name; k++) model.nextPaint();
+      model.setNight(this.env.preset.night);
+      const tag = new NameTag(e.name, css(PAINTS[e.paint].color));
+      const view: RivalView = { e, model, fx: new JetFx(model.root, this.vapour), skids: new SkidMarks(), tag, prev: snap(), curr: snap(), hop: false };
+      this.scene.add(model.root, view.skids.mesh, tag.sprite);
+      this.rivals.push(view);
+    }
+  }
+
+  private dropRace() {
+    if (!this.race) return;
+    this.race.dispose();
+    for (const r of this.rivals) { this.scene.remove(r.model.root, r.skids.mesh, r.tag.sprite); }
+    this.rivals = [];
+    this.race = null;
   }
 
   private buildEnvironment() {
@@ -177,12 +209,13 @@ export class Game {
     this.model.setNight(this.env.preset.night);
     this.vapour.setNight(this.env.preset.night);
     for (const r of this.rivals ?? []) r.model.setNight(this.env.preset.night);
+    this.remote?.setNight(this.env.preset.night);
   }
 
   /** from the title screen: any key races, F goes to free practice */
   start(code?: string) {
     audio.unlock();
-    if (this.phase !== 'title') return;
+    if (this.phase !== 'title' || this.partyUi.active || this.partyUi.open) return;
     if (code === 'KeyF') this.practice();
     this.hud.title.classList.add('hidden');
     this.beginLights();
@@ -216,12 +249,7 @@ export class Game {
 
   /** drop the rivals and drive alone, from the old flying-lap start */
   private practice() {
-    if (this.race) {
-      this.race.dispose();
-      for (const r of this.rivals) { this.scene.remove(r.model.root, r.skids.mesh, r.tag.sprite); }
-      this.rivals = [];
-      this.race = null;
-    }
+    this.dropRace();
     const g = this.track.pointAt(GRID_S, 0);
     this.car.place(g.x, g.y, g.z, this.track.headingAt(GRID_S));
     this.restartCommon();
@@ -233,7 +261,7 @@ export class Game {
     this.restartCommon();
   }
 
-  private restartCommon() {
+  private restartCommon(lights = true) {
     this.jets.reset(); this.jets.tank = 1;
     this.canisters.reset();
     this.skids.clear(); this.vapour.clear();
@@ -244,7 +272,135 @@ export class Game {
     this.settle();
     this.resetLaps();
     this.hud.setRace(null);
-    this.beginLights();
+    if (lights) this.beginLights();
+  }
+
+  // ---- party races (the screens are in ui/partyUi.ts)
+
+  get paintIndex() { return Math.max(0, PAINTS.findIndex(p => p.name === this.model.paintName)); }
+
+  setPaint(n: number) { for (let k = 0; k < PAINTS.length && this.paintIndex !== n; k++) this.model.nextPaint(); }
+
+  message(text: string, seconds?: number) { this.hud.message(text, seconds); }
+
+  closeMenu() { if (this.netRace) this.hud.paused.classList.add('hidden'); else if (this.paused) { this.paused = false; this.hud.paused.classList.add('hidden'); } }
+
+  /** leave a race, practice or the pause screen for the title, everyone back on the grid */
+  toTitle() {
+    this.paused = false;
+    this.hud.paused.classList.add('hidden');
+    if (this.phase === 'title') return;
+    this.phase = 'title';
+    this.hud.setLights(-1); this.trackScene.setStartLights(0);
+    if (this.race) this.race.grid();
+    else { const g = this.track.pointAt(GRID_S, 0); this.car.place(g.x, g.y, g.z, this.track.headingAt(GRID_S)); }
+    this.restartCommon(false);
+    this.rig.reset();
+  }
+
+  /** in a party the AI rivals step aside: the race is against the friends */
+  joinedParty(pc: PartyClient) {
+    this.party = pc;
+    document.body.classList.add('in-party');
+    this.hud.title.classList.add('hidden');
+    if (this.race) { this.dropRace(); this.toPartyGrid(0); }
+  }
+
+  leftParty() {
+    this.party = null;
+    this.netRace = null;
+    this.remote.clear();
+    document.body.classList.remove('in-party');
+    this.toTitle();
+    if (!this.race) { this.buildRace(); this.restartCommon(false); }
+    this.hud.title.classList.remove('hidden');
+  }
+
+  private toPartyGrid(slot: number) {
+    const [s, d] = partySlot(slot);
+    const g = this.track.pointAt(s, d);
+    this.car.place(g.x, g.y, g.z, this.track.headingAt(s));
+    this.restartCommon(false);
+    this.rig.reset();
+  }
+
+  beginPartyRace(slot: number, laps: number) {
+    audio.unlock();
+    this.paused = false; this.hud.paused.classList.add('hidden');
+    this.dropRace();
+    this.netRace = { laps, slot, startedAt: null, finished: false, finishDist: 0 };
+    this.toPartyGrid(slot);
+    this.phase = 'lights';
+    this.hud.title.classList.add('hidden');
+    this.hud.setLights(0); this.trackScene.setStartLights(0);
+    this.hud.message(`${laps} lap${laps > 1 ? 's' : ''}`, 1.6);
+  }
+
+  partyLights(n: number) { this.hud.setLights(n); this.trackScene.setStartLights(n); }
+
+  partyGo() {
+    if (!this.netRace || this.phase !== 'lights') return;
+    this.phase = 'driving';
+    this.netRace.startedAt = performance.now();
+    this.jets.armLaunch();
+    this.partyLights(0);
+    this.hud.message('GO!', 1.2);
+    setTimeout(() => this.hud.setLights(-1), 900);
+  }
+
+  endPartyRace() {
+    this.netRace = null;
+    this.party?.snapshots.clear();
+    this.remote.clear();
+    this.toTitle();
+    this.toPartyGrid(0);
+  }
+
+  /** race progress in metres, for the standings: negative on the grid, then laps × length */
+  private raceDist(s: number) { return this.lap > 0 ? (this.lap - 1) * this.track.total + s : s - this.track.total; }
+
+  private finishPartyRace() {
+    const r = this.netRace!;
+    r.finished = true;
+    const time = (performance.now() - (r.startedAt ?? performance.now())) / 1000;
+    // finishers rank ahead of everyone still racing, the quickest first
+    r.finishDist = (r.laps + 10) * this.track.total - time;
+    this.party?.sendFinish(time, this.bestLap);
+    this.hud.message(`Finished · ${formatTime(time)}`, 3);
+    // a cool-down lap on the autopilot while the others finish
+    this.phase = 'finished';
+    this.pilot = new Autopilot(this.track);
+  }
+
+  /** party race: send our car at NET_RATE, draw the others, update the standings */
+  private netFrame(dt: number) {
+    const pc = this.party!, r = this.netRace!;
+    const t = this.car.body.translation(), q = this.car.body.rotation();
+    const dist = r.finished ? r.finishDist : this.raceDist(this.prevS);
+    this.netT += dt;
+    if (this.netT >= 1 / NET_RATE) {
+      this.netT = 0;
+      const braking = this.inp.brake > 0.1 && this.car.speed > 0.5 ? 1 : 0;
+      const r3 = (v: number) => Math.round(v * 1000) / 1000;
+      pc.sendState([r3(t.x), r3(t.y), r3(t.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w), Math.round(dist), r3(this.car.speed), r3(this.car.wheels[0].steer),
+        braking | (this.jets.boosting ? 2 : 0), this.paintIndex]);
+    }
+    const players = pc.lobby?.players ?? [];
+    const others = this.remote.update(pc.snapshots, players, this.rig.cam, dt, this.netPos);
+    const field = [{ id: pc.id, dist, paint: this.paintIndex }, ...others]
+      .filter(x => x.id === pc.id || players.some(p => p.id === x.id))
+      .sort((a, b) => b.dist - a.dist);
+    field.forEach((x, k) => this.netPos.set(x.id, k + 1));
+    const lead = field[0];
+    const lap = Math.min(this.lap, r.laps + 1);
+    this.hud.setRace({
+      pos: this.netPos.get(pc.id) ?? 1, total: field.length, lap: r.finished ? r.laps + 1 : lap, laps: r.laps,
+      field: field.map((x, k) => ({
+        pos: k + 1, name: players.find(p => p.id === x.id)?.name ?? 'You', color: paintCss(x.paint), you: x.id === pc.id,
+        gap: k === 0 ? '' : `+${((lead.dist - x.dist) / GAP_SPEED).toFixed(1)}`,
+      })),
+    });
+    return others.map(o => ({ x: o.x, z: o.z, color: paintCss(o.paint) }));
   }
 
   private setHelp(h: DrivingHelp) {
@@ -276,10 +432,14 @@ export class Game {
   }
 
   private handleActions() {
-    if (input.consume('pause') && this.phase !== 'title') { this.paused = !this.paused; this.hud.paused.classList.toggle('hidden', !this.paused); }
+    if (input.consume('pause') && this.phase !== 'title') {
+      // a party race keeps running: Esc only opens the menu (with Leave party)
+      if (this.netRace) this.hud.paused.classList.toggle('hidden');
+      else { this.paused = !this.paused; this.hud.paused.classList.toggle('hidden', !this.paused); }
+    }
     if (input.consume('help')) this.hud.help.classList.toggle('hidden');
     if (input.consume('camera')) { this.rig.next(); this.hud.message(`Camera: ${this.rig.mode}`, 1.2); }
-    if (input.consume('paint')) { this.model.nextPaint(); this.hud.message(this.model.paintName, 1.4); }
+    if (input.consume('paint')) { this.model.nextPaint(); this.hud.message(this.model.paintName, 1.4); this.party?.setProfile({ paint: this.paintIndex }); }
     if (input.consume('time')) { this.todIndex = (this.todIndex + 1) % TIMES.length; this.buildEnvironment(); this.hud.message(`Time of day: ${TIMES[this.todIndex]}`, 1.4); }
     if (input.consume('mute')) this.hud.message(audio.toggleMute() ? 'Sound off' : 'Sound on', 1.2);
     if (input.consume('reset') && this.phase === 'driving' && !this.paused) { this.resetCar(); this.hud.message('Reset', 1); }
@@ -343,7 +503,10 @@ export class Game {
         if (this.bestLap === null || t < this.bestLap) { this.bestLap = t; store()?.setItem('rd-best', String(t)); this.hud.message('Best lap!', 2.5); }
         this.hud.showDelta(delta);
       }
-      if (this.lapStart === null || this.passedHalf) { this.lap++; this.lapStart = this.simTime; this.passedHalf = false; }
+      if (this.lapStart === null || this.passedHalf) {
+        this.lap++; this.lapStart = this.simTime; this.passedHalf = false;
+        if (this.netRace && !this.netRace.finished && this.lap > this.netRace.laps) this.finishPartyRace();
+      }
     } else if (this.prevS < 80 && s > this.track.total - 80 && this.lapStart !== null) {
       // reversed back over the line: this lap no longer counts
       this.passedHalf = false;
@@ -356,13 +519,14 @@ export class Game {
   }
 
   frame(now = performance.now()) {
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+    // a frame timestamp can predate a long task (such as building the world): never step backwards
+    const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
     this.last = now;
     this.handleActions();
     this.inp = input.poll(dt);
     if (this.inp.hop) this.hopQueued = true;
 
-    if (this.phase === 'lights' && !this.paused) {
+    if (this.phase === 'lights' && !this.paused && !this.netRace) {
       this.lightsT += dt;
       const lit = Math.min(5, Math.floor(this.lightsT / 0.8));
       if (this.lightsT < 4.0 + this.lightsHold) { this.hud.setLights(lit); this.trackScene.setStartLights(lit); }
@@ -434,6 +598,7 @@ export class Game {
     } else this.rig.update(focus, dt, this.inp.lookBack);
     if (this.debugCam) { this.rig.cam.position.set(...this.debugCam.pos); this.rig.cam.lookAt(...this.debugCam.target); }
     this.env.follow(focus.x, focus.y, focus.z);
+    const friends = this.party && this.netRace ? this.netFrame(dt) : [];
     this.probe?.update(this.renderer.gl, this.scene, new THREE.Vector3(focus.x, focus.y + 0.35, focus.z), root,
       () => this.env.setProbeMode(true), () => this.env.setProbeMode(false));
 
@@ -445,7 +610,7 @@ export class Game {
       speed: this.car.speed, powerKw: this.car.powerKw, lap: this.lap,
       current: this.lapStart !== null ? this.simTime - this.lapStart : null, last: this.lastLap, best: this.bestLap,
       x: focus.x, z: focus.z, heading: e.y, help: HELP_LABEL[this.help], paint: this.model.paintName,
-      others: this.rivals.map(r => ({ x: r.model.root.position.x, z: r.model.root.position.z, color: css(PAINTS[r.e.paint].color) })),
+      others: [...this.rivals.map(r => ({ x: r.model.root.position.x, z: r.model.root.position.z, color: css(PAINTS[r.e.paint].color) })), ...friends],
     });
     this.renderer.render(this.scene, this.rig.cam);
   }

@@ -13,5 +13,5 @@
     "noEmit": true,
     "resolveJsonModule": true
   },
-  "include": ["src", "scripts", "worker", "vite.config.ts"]
+  "include": ["src", "server", "scripts", "vite.config.ts"]
 }
