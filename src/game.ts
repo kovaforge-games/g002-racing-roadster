@@ -13,6 +13,7 @@ import type { Quality } from './render/graphics';
 import { Environment, type TimeOfDay } from './render/environment';
 import { TrackScene } from './render/trackScene';
 import { CarModel } from './render/carModel';
+import { ReflectionProbe } from './render/reflections';
 import { CameraRig } from './render/cameras';
 import { SkidMarks } from './render/skids';
 import { input, type DriveInput } from './core/input';
@@ -39,6 +40,7 @@ export class Game {
   private env!: Environment;
   private trackScene: TrackScene;
   readonly model = new CarModel();
+  private probe: ReflectionProbe | null = null;
   readonly rig = new CameraRig();
   private skids = new SkidMarks();
   readonly hud: Hud;
@@ -86,6 +88,11 @@ export class Game {
     this.buildEnvironment();
     this.trackScene = new TrackScene(this.track, this.terrain, quality);
     this.scene.add(this.trackScene.group, this.model.root, this.skids.mesh);
+    if (quality === 'high' || quality === 'ultra') {
+      this.probe = new ReflectionProbe(quality === 'ultra' ? 256 : 128, quality === 'ultra' ? 2 : 4);
+      this.model.setReflections(this.probe.texture);
+    }
+    this.model.onSpoiler = up => { if (this.phase === 'driving') this.hud.message(up ? 'Spoiler up' : 'Spoiler down', 1); };
 
     const g = this.track.pointAt(GRID_S, 0);
     this.car = new Car(this.world, g.x, g.y, g.z, this.track.headingAt(GRID_S));
@@ -242,6 +249,8 @@ export class Game {
     } else this.rig.update(focus, dt, this.inp.lookBack);
     if (this.debugCam) { this.rig.cam.position.set(...this.debugCam.pos); this.rig.cam.lookAt(...this.debugCam.target); }
     this.env.follow(focus.x, focus.y, focus.z);
+    this.probe?.update(this.renderer.gl, this.scene, new THREE.Vector3(focus.x, focus.y + 0.35, focus.z), root,
+      () => this.env.setProbeMode(true), () => this.env.setProbeMode(false));
 
     const slip = Math.max(...this.car.wheels.map(w => w.slip));
     audio.update(this.car.speed, Math.max(-1, Math.min(1, this.car.powerKw / 300)), slip, this.kerb, this.paused || this.phase === 'title');
