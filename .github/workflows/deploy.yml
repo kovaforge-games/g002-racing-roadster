@@ -1,5 +1,5 @@
 # Checks every push and pull request; deploys to https://kovaforge.org/games/g002/ and
-# https://roadster.kovaforge.org on every push to main (same setup as g001).
+# https://g002-roadster.kovaforge.workers.dev/ on every push to main.
 # Deploying needs the repository secret CLOUDFLARE_API_TOKEN (see README → Publishing).
 name: Check and deploy
 on:
@@ -34,6 +34,6 @@ jobs:
         if: ${{ env.DEPLOY == 'true' && env.CLOUDFLARE_API_TOKEN != '' }}
         run: |
           sleep 15
-          for u in https://kovaforge.org/games/g002/ https://roadster.kovaforge.org/; do
+          for u in https://kovaforge.org/games/g002/ https://g002-roadster.kovaforge.workers.dev/; do
             if curl -fsS "$u" | grep -q '<title>Roadster</title>'; then echo "::notice::ok $u serves the game"; else echo "::warning::$u is not serving the game yet"; fi
           done

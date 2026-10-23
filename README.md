@@ -6,7 +6,7 @@ It builds on [g001 (Grand Prix Racer)](https://github.com/l4mb0lion/g001-racing)
 
 ## Play online
 
-Once published (see [Publishing](#publishing)): **https://kovaforge.org/games/g002/** and **https://roadster.kovaforge.org**. The game needs WebGL 2 and runs in Chrome, Edge, Firefox and Safari.
+Once published (see [Publishing](#publishing)): **https://kovaforge.org/games/g002/** and **https://g002-roadster.kovaforge.workers.dev/**. The game needs WebGL 2 and runs in Chrome, Edge, Firefox and Safari.
 
 ## Play locally
 
@@ -121,7 +121,7 @@ npm run party-browser-test   # (with dev + party-server running) three browsers:
 
 ## Publishing
 
-The game is published the same way as g001: as its own Cloudflare Worker, `g002-roadster`, on the Delpach account. Static assets serve the game at **kovaforge.org/games/g002/** (a route that takes precedence over the `kovaforge-home` Worker for that path only) and at **roadster.kovaforge.org** (a custom domain). Each party runs in its own Durable Object (`PartyRoom`, SQLite-backed, which the Workers Free plan includes), reached over a WebSocket at `/games/g002/ws`; the Worker picks a random 6-digit code and tries another if that room is still in use. See `wrangler.jsonc` and `worker/index.ts`. `npx wrangler dev` runs the Worker and its Durable Objects locally (after `npm run build:kovaforge`), and `npm run party-test -- ws://localhost:8787/ws` tests it.
+The game is published the same way as g001: as its own Cloudflare Worker, `g002-roadster`, on the Delpach account. Static assets serve the game at **kovaforge.org/games/g002/** (a route that takes precedence over the `kovaforge-home` Worker for that path only) and at **g002-roadster.kovaforge.workers.dev/**. Each party runs in its own Durable Object (`PartyRoom`, SQLite-backed, which the Workers Free plan includes), reached over a WebSocket at `/games/g002/ws`; the Worker picks a random 6-digit code and tries another if that room is still in use. See `wrangler.jsonc` and `worker/index.ts`. `npx wrangler dev` runs the Worker and its Durable Objects locally (after `npm run build:kovaforge`), and `npm run party-test -- ws://localhost:8787/ws` tests it.
 
 **Automatic deploys on every push to `main`:** add a repository secret named `CLOUDFLARE_API_TOKEN` (GitHub → Settings → Secrets and variables → Actions). The same kind of token as g001 works: the *Edit Cloudflare Workers* template scoped to the Delpach account and the kovaforge.org zone. The workflow in `.github/workflows/deploy.yml` type-checks, runs the handling test, builds and deploys, then checks both addresses. Pull requests run the checks without deploying. To pause deploys, set the repository variable `DEPLOY_DISABLED=true`.
 

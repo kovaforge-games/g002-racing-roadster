@@ -1,6 +1,6 @@
 // Serves the built game from Workers static assets, and hosts each multiplayer party in its own
 // Durable Object (WebSockets at /games/g002/ws). The files live under /games/g002/ so the same
-// build works on kovaforge.org/games/g002/ and at the root of roadster.kovaforge.org.
+// build works on kovaforge.org/games/g002/ and at the root of the workers.dev address.
 import { DurableObject } from 'cloudflare:workers';
 import { createPartyHandler, randomCode, cleanCode, CODE_LENGTH, type Conn, type Party } from '../server/party-core';
 
