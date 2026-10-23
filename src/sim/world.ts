@@ -1,11 +1,13 @@
-// Rapier world: one heightfield for the whole landscape (road included) and barrier walls
-// built from short boxes along both sides of the circuit.
+// Rapier world: one heightfield for the whole landscape (road included) and barrier walls with
+// the debris fence on top, built from short boxes along both sides of the circuit.
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Track } from './track';
 import type { Terrain } from './terrain';
 
 export const PHYSICS_DT = 1 / 120;
 export const WALL_HEIGHT = 1.1;
+/** the debris fence on top of the barriers: solid, so a hop can't clear the barrier */
+export const FENCE_HEIGHT = 2.6;
 const WALL_SEGMENT = 4;
 
 export async function initPhysics() {
@@ -40,6 +42,9 @@ export function buildWorld(track: Track, terrain: Terrain) {
       world.createCollider(RAPIER.ColliderDesc.cuboid(0.3, WALL_HEIGHT, len / 2 + 0.25)
         .setTranslation((a.x + b.x) / 2, (a.y + b.y) / 2 + WALL_HEIGHT * 0.5, (a.z + b.z) / 2)
         .setRotation(q).setFriction(0.15).setRestitution(0.1));
+      world.createCollider(RAPIER.ColliderDesc.cuboid(0.08, FENCE_HEIGHT / 2, len / 2 + 0.25)
+        .setTranslation((a.x + b.x) / 2, (a.y + b.y) / 2 + WALL_HEIGHT * 1.5 + FENCE_HEIGHT / 2 - 0.1, (a.z + b.z) / 2)
+        .setRotation(q).setFriction(0.1).setRestitution(0.05));
     }
   }
   return world;
