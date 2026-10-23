@@ -22,6 +22,7 @@ import { SkidMarks } from './render/skids';
 import { Vapour, JetFx } from './render/vapour';
 import { CanisterScene } from './render/canisterScene';
 import { cloneModel } from './render/cloneModel';
+import { NameTag } from './render/nameTag';
 import { input, type DriveInput } from './core/input';
 import { audio } from './core/audio';
 import { Hud, formatTime } from './ui/hud';
@@ -44,7 +45,7 @@ const snap = (): Snap => ({ p: new THREE.Vector3(), q: new THREE.Quaternion() })
 const css = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`;
 
 /** a rival's car on screen: model, thruster effects, skid marks and interpolation snapshots */
-interface RivalView { e: Entrant; model: CarModel; fx: JetFx; skids: SkidMarks; prev: Snap; curr: Snap; hop: boolean }
+interface RivalView { e: Entrant; model: CarModel; fx: JetFx; skids: SkidMarks; tag: NameTag; prev: Snap; curr: Snap; hop: boolean }
 
 export interface GameOptions { quality?: Quality; safe?: boolean; tod?: TimeOfDay; autodrive?: boolean }
 
@@ -82,6 +83,7 @@ export class Game {
   private raceHudT = 0;
   private lastPos = 0;
   private lastRaceLap = 0;
+  private washedPrev = false;
 
   phase: Phase = 'title';
   paused = false;
@@ -139,8 +141,9 @@ export class Game {
       const model = cloneModel(this.model);
       for (let k = 0; k < e.paint; k++) model.nextPaint();
       model.setNight(this.env.preset.night);
-      const view: RivalView = { e, model, fx: new JetFx(model.root, this.vapour), skids: new SkidMarks(), prev: snap(), curr: snap(), hop: false };
-      this.scene.add(model.root, view.skids.mesh);
+      const tag = new NameTag(e.name, css(PAINTS[e.paint].color));
+      const view: RivalView = { e, model, fx: new JetFx(model.root, this.vapour), skids: new SkidMarks(), tag, prev: snap(), curr: snap(), hop: false };
+      this.scene.add(model.root, view.skids.mesh, tag.sprite);
       this.rivals.push(view);
     }
     this.jetFx = new JetFx(this.model.root, this.vapour);
@@ -207,7 +210,7 @@ export class Game {
   private practice() {
     if (this.race) {
       this.race.dispose();
-      for (const r of this.rivals) { this.scene.remove(r.model.root, r.skids.mesh); }
+      for (const r of this.rivals) { this.scene.remove(r.model.root, r.skids.mesh, r.tag.sprite); }
       this.rivals = [];
       this.race = null;
     }
@@ -387,6 +390,7 @@ export class Game {
     for (const ev of this.frameEvents) { const m = JET_MESSAGES[ev]; if (m) this.hud.message(m[0], m[1]); }
     this.frameEvents.length = 0; this.frameHop = false; this.frameAir = 0;
     this.rig.boost = this.jets.boosting ? 1 : 0;
+    let nearBoost = 0;
     for (const r of this.rivals) {
       const rr = r.model.root;
       rr.position.lerpVectors(r.prev.p, r.curr.p, alpha);
@@ -395,7 +399,14 @@ export class Game {
       r.skids.update(r.e.car);
       r.fx.update(r.e.jets, r.hop, rr, r.e.car.body.linvel(), dt);
       r.hop = false;
+      const camDist = rr.position.distanceTo(this.rig.cam.position);
+      r.tag.update(r.e.pos, rr.position.x, rr.position.y, rr.position.z, this.phase === 'title' ? 0 : camDist);
+      // rivals' jets are heard when they boost close by
+      if (r.e.jets.boosting) nearBoost = Math.max(nearBoost, 1 - camDist / 35);
     }
+    const washed = (this.race?.player.washed ?? 0) > 0;
+    if (washed && !this.washedPrev) this.hud.message('Jet wash!', 0.8);
+    this.washedPrev = washed;
     if (this.race) this.updateRaceHud(dt);
 
     const impact = this.car.takeImpact();
@@ -418,7 +429,7 @@ export class Game {
 
     const slip = Math.max(...this.car.wheels.map(w => w.slip));
     audio.update(this.car.speed, Math.max(-1, Math.min(1, this.car.powerKw / 300)), slip, this.kerb, this.paused || this.phase === 'title');
-    audio.jets(this.jets.boosting ? 1 : 0, this.jets.attitude, this.jets.tank, this.paused || this.phase === 'title');
+    audio.jets(Math.max(this.jets.boosting ? 1 : 0, nearBoost * 0.45), this.jets.attitude, this.jets.tank, this.paused || this.phase === 'title');
     this.hud.setAir(this.jets.tank, this.jets.boosting, this.jets.hopCooldown <= 0 && this.jets.tank >= 0.1, dt);
     this.hud.update(dt, {
       speed: this.car.speed, powerKw: this.car.powerKw, lap: this.lap,

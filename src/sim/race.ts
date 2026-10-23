@@ -13,6 +13,8 @@ import type { Track } from './track';
 import { PHYSICS_DT } from './world';
 
 export const RACE_LAPS = 3;
+/** jet wash on a car right behind a boosting one (N, at closest range) */
+const JET_WASH = 9000;
 /** grid slots: arc length and side, front row first */
 const GRID = [[-10, -2.8], [-15, 2.8], [-20, -2.8], [-25, 2.8], [-30, -2.8], [-35, 2.8]] as const;
 /** the player's slot (0-based): fifth, so there is a field to race through */
@@ -43,6 +45,8 @@ export interface Entrant extends CarView {
   resets: number;
   /** brake lights */
   braking: boolean;
+  /** seconds left of being hit by someone's jet wash, for a message */
+  washed: number;
 }
 
 export class Race {
@@ -60,7 +64,7 @@ export class Race {
     this.profile = speedProfile(track, 1.55);
     const blank = (name: string, car: Car, jets: Jets, driver: RivalDriver | null, paint: number): Entrant => ({
       name, car, jets, driver, paint, s: 0, lateral: 0, speed: 0, hint: -1, lap: 0, passedHalf: false, prevS: 0,
-      dist: 0, pos: 0, finished: false, finishTime: null, lapStart: null, bestLap: null, flipT: 0, gotAir: 0, resets: 0, braking: false,
+      dist: 0, pos: 0, finished: false, finishTime: null, lapStart: null, bestLap: null, flipT: 0, gotAir: 0, resets: 0, braking: false, washed: 0,
     });
     this.player = blank('You', playerCar, playerJets, null, 0);
     for (let k = 0; k < rivals; k++) {
@@ -116,6 +120,27 @@ export class Race {
       e.car.step(assisted);
       e.jets.step(e.car, assisted, jet, dt);
     }
+    if (this.running) this.jetWash();
+  }
+
+  /** a car tucked in close behind a boosting car gets blasted back by its jets */
+  private jetWash() {
+    for (const e of this.entrants) {
+      if (!e.jets.boosting) continue;
+      const p = e.car.body.translation();
+      const { fwd } = e.car.axes();
+      for (const o of this.entrants) {
+        if (o === e) continue;
+        const q = o.car.body.translation();
+        const dx = q.x - p.x, dz = q.z - p.z;
+        const back = -(dx * fwd.x + dz * fwd.z);          // metres behind e
+        const side = Math.abs(dx * fwd.z - dz * fwd.x);   // metres off e's centreline
+        if (back < 2 || back > 12 || side > 1.8 || Math.abs(q.y - p.y) > 2) continue;
+        const f = JET_WASH * (1 - back / 12) * (1 - side / 1.8);
+        o.car.body.addForce({ x: -fwd.x * f, y: 0, z: -fwd.z * f }, true);
+        o.washed = 0.3;
+      }
+    }
   }
 
   /** after world.step: progress, laps, air pickups and recovery for everyone */
@@ -127,6 +152,7 @@ export class Race {
       const near = tr.nearest(pos.x, pos.z, e.hint, 20);
       e.hint = near.i; e.s = near.s; e.lateral = near.lateral; e.speed = e.car.speed;
       e.gotAir = 0;
+      e.washed = Math.max(0, e.washed - dt);
       if (e.driver) {
         const got = this.canisters.collect(pos.x, pos.y, pos.z);
         if (got) { e.jets.refill(got * CANISTER_AIR); e.gotAir = got * CANISTER_AIR; }

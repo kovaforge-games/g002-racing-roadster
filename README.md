@@ -21,7 +21,7 @@ Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic gra
 
 Press any key on the title screen to race, or **F** for free practice. In a race you start fifth of six on a staggered grid; the standings panel (top right) shows your position, the lap and the gaps, and rivals appear as coloured dots on the map. After the flag the autopilot takes a cool-down lap while the results come in: **Enter** races again, **F** switches to free practice.
 
-The rivals (Nova Reyes, Kai Lindqvist, Mara Okafor, Theo Brandt and Suki Tanaka, all fictional) are g001's bot drivers adapted for this car: they follow a racing line at a speed set by the corners ahead, pass and follow in traffic, learn where they can push harder each lap, make the odd mistake, and recover from spins. They use the thrusters too: boost on the straights, hop a slow car in their lane, and swing through the air canisters when their tank runs low. Rivals well behind you push a little harder and ones far ahead ease off slightly, so the racing stays close. Cars collide with each other.
+The rivals (Nova Reyes, Kai Lindqvist, Mara Okafor, Theo Brandt and Suki Tanaka, all fictional) are g001's bot drivers adapted for this car: they follow a racing line at a speed set by the corners ahead, pass and follow in traffic, learn where they can push harder each lap, make the odd mistake, and recover from spins. They use the thrusters too: boost on the straights, hop a slow car in their lane, and swing through the air canisters when their tank runs low. Rivals well behind you push a little harder and ones far ahead ease off slightly, so the racing stays close. Cars collide with each other, and tailgating a boosting car is a bad idea: its jet wash shoves you back. Name tags over the rivals show their position, and you hear their jets when they boost close by.
 
 ## Controls
 
@@ -81,7 +81,7 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Thrusters and air tank; air canisters | `src/sim/jets.ts`, `src/sim/canisters.ts` |
 | Renderer, presets, lighting, surfaces | `src/render/renderer.ts`, `graphics.ts`, `environment.ts`, `surfaces.ts` |
 | Scenery, car body and model, skid marks, cameras | `src/render/trackScene.ts`, `carBody.ts`, `carModel.ts`, `skids.ts`, `cameras.ts` |
-| Vapour puffs and jet cones; canisters; fast copies of the car model for rivals | `src/render/vapour.ts`, `canisterScene.ts`, `cloneModel.ts` |
+| Vapour puffs and jet cones; canisters; fast copies of the car model for rivals; name tags | `src/render/vapour.ts`, `canisterScene.ts`, `cloneModel.ts`, `nameTag.ts` |
 | Input, audio, crash recovery | `src/core/` |
 | HUD and overlays | `src/ui/hud.ts` |
 | Racing line and speed profile; AI rivals; the race (grid, laps, positions) | `src/sim/racingLine.ts`, `rival.ts`, `race.ts` |
