@@ -14,7 +14,7 @@ import { PHYSICS_DT } from './world';
 
 export const RACE_LAPS = 3;
 /** jet wash on a car right behind a boosting one (N, at closest range) */
-const JET_WASH = 9000;
+const JET_WASH = 7000;
 /** grid slots: arc length and side, front row first */
 const GRID = [[-10, -2.8], [-15, 2.8], [-20, -2.8], [-25, 2.8], [-30, -2.8], [-35, 2.8]] as const;
 /** the player's slot (0-based): fifth, so there is a field to race through */
@@ -123,8 +123,10 @@ export class Race {
     if (this.running) this.jetWash();
   }
 
-  /** a car tucked in close behind a boosting car gets blasted back by its jets */
+  /** a car tucked in close behind a boosting car gets blasted back by its jets (not off the
+   *  grid, where everyone sits right behind someone) */
   private jetWash() {
+    if (this.time < 3) return;
     for (const e of this.entrants) {
       if (!e.jets.boosting) continue;
       const p = e.car.body.translation();
@@ -135,8 +137,8 @@ export class Race {
         const dx = q.x - p.x, dz = q.z - p.z;
         const back = -(dx * fwd.x + dz * fwd.z);          // metres behind e
         const side = Math.abs(dx * fwd.z - dz * fwd.x);   // metres off e's centreline
-        if (back < 2 || back > 12 || side > 1.8 || Math.abs(q.y - p.y) > 2) continue;
-        const f = JET_WASH * (1 - back / 12) * (1 - side / 1.8);
+        if (back < 2 || back > 10 || side > 1.8 || Math.abs(q.y - p.y) > 2) continue;
+        const f = JET_WASH * (1 - back / 10) * (1 - side / 1.8);
         o.car.body.addForce({ x: -fwd.x * f, y: 0, z: -fwd.z * f }, true);
         o.washed = 0.3;
       }
