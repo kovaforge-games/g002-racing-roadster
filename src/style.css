@@ -89,6 +89,63 @@ h2 { margin: 0 0 8px; letter-spacing: 3px; }
 .err-banner code { opacity: .7; font-size: 12px; display: block; overflow-wrap: anywhere; }
 .btn { background: #fff1; color: #fff; border: 1px solid #fff3; border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
 
+/* ---------- party: title buttons, lobby with QR code, standings, name tags */
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.big { padding: 11px 22px; font-size: 16px; font-weight: 700; letter-spacing: 1px; border-radius: 10px; }
+.btn.primary { background: var(--accent); color: #04121a; border-color: transparent; }
+.btn.small { padding: 2px 10px; font-size: 16px; line-height: 1.3; }
+.party-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+.title .party-buttons { opacity: 0; }
+.title.ready .party-buttons { opacity: 1; }
+.solo-only, .party-only { display: contents; }
+body.in-party .solo-only, body:not(.in-party) .party-only { display: none; }
+.paused .row { display: flex; gap: 10px; justify-content: center; }
+.overlay.party { background: rgba(5, 8, 12, 0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); z-index: 20; padding: 16px; overflow-y: auto; }
+.party-card { display: flex; gap: 28px; align-items: stretch; flex-wrap: wrap; justify-content: center; max-width: 760px; width: 100%;
+  background: rgba(10, 15, 22, 0.88); border: 1px solid var(--edge); border-radius: 18px; padding: 24px; text-align: left; user-select: text; -webkit-user-select: text; }
+.party-card > h2, .party-card > p, .party-card > .row, .party-card > .code-input, .party-card > .error { flex-basis: 100%; text-align: center; margin: 0; }
+.party-card .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: center; }
+.party-card .dim, .party-card .label { color: var(--dim); }
+.party-card .small { font-size: 12px; }
+.party-card .error { color: #ff7a59; min-height: 20px; }
+.qr-side { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.qr-side .label { font-size: 11px; letter-spacing: 3px; font-weight: 700; }
+.qr { width: 240px; height: 240px; border-radius: 12px; background: #fff; display: block; }
+.code-big { font-size: 44px; font-weight: 900; letter-spacing: 6px; font-variant-numeric: tabular-nums; line-height: 1; color: var(--fg); }
+.qr-side p { margin: 0; max-width: 240px; }
+.lobby-side { flex: 1 1 280px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lobby-side h2 { margin: 0; }
+.lobby-side .row { justify-content: flex-start; margin-top: auto; }
+.lobby-side p { margin: 0; }
+.party-card .text, .code-input { font: inherit; color: var(--fg); background: rgba(255, 255, 255, 0.06); border: 1px solid var(--edge); border-radius: 8px; padding: 8px 10px; }
+.party-card label.name { display: flex; flex-direction: column; gap: 4px; font-size: 12px; letter-spacing: 1px; }
+.party-card label.name .text { font-size: 16px; }
+.code-input { display: block; margin: 0 auto !important; width: 260px; max-width: 100%; text-align: center; font-size: 40px; font-weight: 800; letter-spacing: 8px; font-variant-numeric: tabular-nums; padding: 10px; }
+.code-input:focus, .party-card .text:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.players li { display: flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, 0.05); padding: 7px 10px; border-radius: 8px; }
+.players li.me { outline: 1px solid rgba(56, 232, 255, 0.5); }
+.players .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.players em { color: var(--dim); font-size: 12px; font-style: normal; }
+.swatch { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #fff5; flex: none; }
+.laps { display: flex; align-items: center; gap: 10px; }
+.laps b { min-width: 18px; text-align: center; font-size: 18px; }
+.results h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: 2px; color: var(--accent); }
+.results ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 3px; }
+.results li span { display: inline-block; min-width: 120px; }
+.results li.me { color: var(--accent); font-weight: 700; }
+.results .time { font-variant-numeric: tabular-nums; color: var(--dim); }
+.party-card .status { color: #ffd34d; }
+
+.standings { top: 44px; right: 16px; padding: 8px 12px; min-width: 150px; max-width: 220px; font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+.standings.hidden { display: none; }
+.standings .pos { display: flex; gap: 8px; white-space: nowrap; overflow: hidden; }
+.standings .n { color: var(--dim); font-weight: 800; min-width: 14px; }
+.standings .who { overflow: hidden; text-overflow: ellipsis; }
+.standings .me { color: var(--accent); font-weight: 700; }
+.nametags { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+.nametag { position: absolute; left: 0; top: 0; padding: 2px 8px; border-radius: 6px; background: rgba(6, 10, 16, 0.6); color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; will-change: transform; }
+
 @media (max-width: 720px) {
   .mapwrap { transform: scale(0.65); transform-origin: bottom left; }
   .dash { transform: scale(0.8); transform-origin: bottom right; }
