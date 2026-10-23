@@ -1,0 +1,182 @@
+// A race: the player and the AI rivals on a staggered grid, laps and positions for everyone,
+// rival driving, air pickups and recovery. The player's own driving, lap timing and resets stay
+// in the game; the race only tracks the player's progress for the standings.
+import type RAPIER from '@dimforge/rapier3d-compat';
+import { Car } from './car';
+import { Jets } from './jets';
+import { RIVALS, RivalDriver, type CarView } from './rival';
+import { racingLine, speedProfile } from './racingLine';
+import { updateSurface } from './surface';
+import { applyDrivingHelp } from './assist';
+import { CANISTER_AIR, type Canisters } from './canisters';
+import type { Track } from './track';
+import { PHYSICS_DT } from './world';
+
+export const RACE_LAPS = 3;
+/** grid slots: arc length and side, front row first */
+const GRID = [[-10, -2.8], [-15, 2.8], [-20, -2.8], [-25, 2.8], [-30, -2.8], [-35, 2.8]] as const;
+/** the player's slot (0-based): fifth, so there is a field to race through */
+export const PLAYER_SLOT = 4;
+
+export interface Entrant extends CarView {
+  name: string;
+  jets: Jets;
+  driver: RivalDriver | null;
+  /** index into the car paints */
+  paint: number;
+  hint: number;
+  /** line crossings: 0 on the grid, 1 on the first lap, RACE_LAPS + 1 when finished */
+  lap: number;
+  passedHalf: boolean;
+  prevS: number;
+  /** distance raced, for the order */
+  dist: number;
+  pos: number;
+  finished: boolean;
+  finishTime: number | null;
+  lapStart: number | null;
+  bestLap: number | null;
+  flipT: number;
+  /** air picked up this step, for effects */
+  gotAir: number;
+  /** times this rival was put back on the road */
+  resets: number;
+}
+
+export class Race {
+  readonly entrants: Entrant[] = [];
+  readonly player: Entrant;
+  time = 0;
+  /** seconds since the lights went out (-1 before) */
+  running = false;
+  private launchPending = false;
+  private line: Float64Array;
+  private profile: Float64Array;
+
+  constructor(private track: Track, world: RAPIER.World, private canisters: Canisters, playerCar: Car, playerJets: Jets, rivals = RIVALS.length) {
+    this.line = racingLine(track);
+    this.profile = speedProfile(track, 1.55);
+    const blank = (name: string, car: Car, jets: Jets, driver: RivalDriver | null, paint: number): Entrant => ({
+      name, car, jets, driver, paint, s: 0, lateral: 0, speed: 0, hint: -1, lap: 0, passedHalf: false, prevS: 0,
+      dist: 0, pos: 0, finished: false, finishTime: null, lapStart: null, bestLap: null, flipT: 0, gotAir: 0, resets: 0,
+    });
+    this.player = blank('You', playerCar, playerJets, null, 0);
+    for (let k = 0; k < rivals; k++) {
+      const def = RIVALS[k];
+      const car = new Car(world, 0, 0, 0, 0);
+      car.stability = 0.6;
+      this.entrants.push(blank(def.name, car, new Jets(), new RivalDriver(def, track, this.line, this.profile), k + 1));
+    }
+    // fastest rivals at the front, the player in their slot
+    this.entrants.splice(PLAYER_SLOT, 0, this.player);
+    this.grid();
+  }
+
+  get rivals() { return this.entrants.filter(e => e.driver); }
+
+  /** everyone back on the grid, laps cleared */
+  grid() {
+    this.entrants.forEach((e, k) => {
+      const [s, d] = GRID[k];
+      const p = this.track.pointAt(s, d);
+      e.car.place(p.x, p.y, p.z, this.track.headingAt(s));
+      e.jets.reset(); e.jets.tank = 1;
+      e.driver?.settle();
+      e.hint = this.track.nearest(p.x, p.z).i;
+      e.s = e.prevS = this.track.nearest(p.x, p.z).s;
+      e.lap = 0; e.passedHalf = false; e.finished = false; e.finishTime = null; e.lapStart = null; e.bestLap = null;
+      e.flipT = 0; e.dist = 0; e.pos = k + 1; e.resets = 0;
+    });
+    this.time = 0; this.running = false;
+  }
+
+  /** the lights are out */
+  go() {
+    this.running = true; this.launchPending = true;
+    for (const e of this.entrants) e.jets.armLaunch();
+  }
+
+  /** drive every rival for one physics step; call after the player's car.step, before world.step */
+  stepRivals(dt = PHYSICS_DT) {
+    const launching = this.launchPending; this.launchPending = false;
+    for (const e of this.entrants) {
+      if (!e.driver) continue;
+      updateSurface(e.car, this.track, e.hint);
+      if (!this.running) {
+        const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
+        e.car.step(hold); e.jets.step(e.car, hold, { boost: false, hop: false, airRoll: false }, dt);
+        continue;
+      }
+      const others = this.entrants.filter(o => o !== e);
+      const { inp, jet } = e.driver.drive(e, others, e.jets, this.canisters, dt, launching);
+      const assisted = applyDrivingHelp('medium', inp, e.car);
+      e.car.step(assisted);
+      e.jets.step(e.car, assisted, jet, dt);
+    }
+  }
+
+  /** after world.step: progress, laps, air pickups and recovery for everyone */
+  afterStep(dt = PHYSICS_DT) {
+    const tr = this.track;
+    if (this.running) this.time += dt;
+    for (const e of this.entrants) {
+      const pos = e.car.body.translation();
+      const near = tr.nearest(pos.x, pos.z, e.hint, 20);
+      e.hint = near.i; e.s = near.s; e.lateral = near.lateral; e.speed = e.car.speed;
+      e.gotAir = 0;
+      if (e.driver) {
+        const got = this.canisters.collect(pos.x, pos.y, pos.z);
+        if (got) { e.jets.refill(got * CANISTER_AIR); e.gotAir = got * CANISTER_AIR; }
+      }
+
+      // laps: crossing s = 0 forwards; a lap counts only if it went past halfway
+      if (Math.abs(near.s - tr.total / 2) < 200) e.passedHalf = true;
+      if (this.running && e.prevS > tr.total - 80 && near.s < 80) {
+        if (e.lap === 0 || e.passedHalf) {
+          if (e.lap > 0 && e.lapStart !== null) {
+            const t = this.time - e.lapStart;
+            if (e.bestLap === null || t < e.bestLap) e.bestLap = t;
+          }
+          e.lap++; e.lapStart = this.time; e.passedHalf = false;
+          if (e.lap > RACE_LAPS && !e.finished) { e.finished = true; e.finishTime = this.time; }
+        }
+      } else if (e.prevS < 80 && near.s > tr.total - 80) e.passedHalf = false;
+      e.prevS = near.s;
+      e.dist = e.lap === 0 ? near.s - tr.total : (e.lap - 1) * tr.total + near.s;
+
+      if (!e.driver) continue;
+      // rivals: flipped, stuck or lost -> back on the road a little behind
+      if (e.car.axes().up.y < 0.25 && Math.abs(e.car.speed) < 4) e.flipT += dt; else e.flipT = 0;
+      if (e.flipT > 1.5 || e.driver.needsReset || pos.y < -50 || near.dist > tr.wallOffset + 40) {
+        e.flipT = 0; e.driver.needsReset = false; e.resets++;
+        const s = near.s - 5;
+        const p = tr.pointAt(s, Math.max(-3, Math.min(3, near.lateral)));
+        e.car.place(p.x, p.y, p.z, tr.headingAt(s));
+        e.jets.reset(); e.driver.settle();
+      }
+    }
+
+    // order: finishers by time, then distance raced
+    const sorted = [...this.entrants].sort((a, b) => {
+      if (a.finished && b.finished) return a.finishTime! - b.finishTime!;
+      if (a.finished !== b.finished) return a.finished ? -1 : 1;
+      return b.dist - a.dist;
+    });
+    sorted.forEach((e, k) => { e.pos = k + 1; });
+
+    // keep it close: rivals well behind the player push harder, ones far ahead ease off a little
+    for (const e of this.entrants) {
+      if (!e.driver) continue;
+      const gap = e.dist - this.player.dist;
+      e.driver.paceMul = gap < -40 ? 1 + Math.min(0.06, (-gap - 40) / 3000) : gap > 160 ? 1 - Math.min(0.03, (gap - 160) / 4000) : 1;
+    }
+  }
+
+  get standings() { return [...this.entrants].sort((a, b) => a.pos - b.pos); }
+
+  get allFinished() { return this.entrants.every(e => e.finished); }
+
+  dispose() {
+    for (const e of this.entrants) if (e.driver) e.car.dispose();
+  }
+}

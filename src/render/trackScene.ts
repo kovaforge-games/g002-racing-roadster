@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Track } from '../sim/track';
 import { fbm, type Terrain } from '../sim/terrain';
 import { WALL_HEIGHT } from '../sim/world';
+import { racingLine } from '../sim/racingLine';
 import type { Quality } from './graphics';
 import { enhanceSurface } from './surfaces';
 import { partitionInstances } from './resources';
@@ -52,21 +53,6 @@ function flipIfNeeded(g: THREE.BufferGeometry, flip: boolean) {
   for (let k = 0; k < idx.count; k += 3) { const t = idx.getX(k + 1); idx.setX(k + 1, idx.getX(k + 2)); idx.setX(k + 2, t); }
   g.computeVertexNormals();
   return g;
-}
-
-/** racing line as a lateral offset: towards the inside of each corner, smoothed */
-function racingLine(track: Track) {
-  const hw = track.halfWidth;
-  let off = Array.from(track.curv, c => -Math.max(-1, Math.min(1, c * 500)) * (hw - 1.8));
-  for (let pass = 0; pass < 3; pass++) {
-    const next = off.map((_, i) => {
-      let sum = 0;
-      for (let k = -14; k <= 14; k++) sum += off[track.wrap(i + k)];
-      return sum / 29;
-    });
-    off = next;
-  }
-  return off.map(o => (o + hw) / (2 * hw));
 }
 
 export class TrackScene {
@@ -131,7 +117,8 @@ export class TrackScene {
 
   private buildRoad() {
     const tr = this.track, hw = tr.halfWidth;
-    const rl = racingLine(tr);
+    // rubbered-in racing line, as 0..1 across the road
+    const rl = Array.from(racingLine(tr), o => (o + hw) / (2 * hw));
     const pts: StripPoint[] = [];
     for (let j = 0; j <= 8; j++) { const f = j / 8; pts.push({ d: -hw + f * 2 * hw, y: ROAD_Y, u: f }); }
     const g = strip(tr, pts, 7, i => rl[i]);

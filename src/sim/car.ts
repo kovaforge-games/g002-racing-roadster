@@ -244,7 +244,8 @@ export class Car {
       }
     }
 
-    v.updateVehicle(dt);
+    // wheel rays only see the ground and walls, never another car
+    v.updateVehicle(dt, RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC);
 
     // telemetry
     const accX = (lv.x - this.prevVel.x) / dt, accY = (lv.y - this.prevVel.y) / dt, accZ = (lv.z - this.prevVel.z) / dt;

@@ -11,6 +11,8 @@ import { updateSurface } from '../src/sim/surface';
 import { Terrain } from '../src/sim/terrain';
 import { buildWorld, initPhysics, PHYSICS_DT } from '../src/sim/world';
 import { Jets, JETS, type JetInputs } from '../src/sim/jets';
+import { Canisters } from '../src/sim/canisters';
+import { Race, RACE_LAPS } from '../src/sim/race';
 
 await initPhysics();
 const dt = PHYSICS_DT;
@@ -176,4 +178,43 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
     check(r.wallHits <= 2, `${driver}/${help}: at most 2 wall hits`);
   }
 }
+// ---- a race against the AI rivals, with the line-following driver in the player's car
+{
+  const world = buildWorld(track, terrain);
+  const canisters = new Canisters(track);
+  const car = new Car(world, 0, 0, 0, 0), jets = new Jets();
+  const race = new Race(track, world, canisters, car, jets);
+  const pilot = new Autopilot(track);
+  pilot.keyboard = true; pilot.aggression = 1.06;
+  const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
+  for (let k = 0; k < 240; k++) { car.step(hold); race.stepRivals(); world.step(); race.afterStep(); }
+  race.go();
+  const boost = new Map<string, number>(), air = new Map<string, number>();
+  let t = 0;
+  while (t < 300 && !race.allFinished) {
+    const p = race.player;
+    updateSurface(car, track, p.hint);
+    const inp = applyDrivingHelp('easy', pilot.drive(car, p.hint, p.s, dt), car);
+    car.step(inp); jets.step(car, inp, { boost: false, hop: false, airRoll: false });
+    race.stepRivals(); world.step(); canisters.step(dt); race.afterStep(); t += dt;
+    for (const e of race.rivals) {
+      if (e.jets.boosting) boost.set(e.name, (boost.get(e.name) ?? 0) + dt);
+      if (e.gotAir) air.set(e.name, (air.get(e.name) ?? 0) + e.gotAir);
+    }
+  }
+  for (const e of race.standings) {
+    console.log(`P${e.pos} ${e.name.padEnd(14)} ${e.finishTime?.toFixed(1) ?? 'dnf'} s, best lap ${e.bestLap?.toFixed(1) ?? '-'} s` +
+      (e.driver ? `, boost ${(boost.get(e.name) ?? 0).toFixed(1)} s, air picked up ${((air.get(e.name) ?? 0) * 100).toFixed(0)}%, resets ${e.resets}` : ''));
+  }
+  const rivals = race.rivals;
+  const times = race.entrants.map(e => e.finishTime ?? Infinity);
+  check(race.allFinished, `race: everyone finishes ${RACE_LAPS} laps`);
+  check(Math.max(...times) - Math.min(...times) < 30, 'race: the field finishes within 30 s');
+  check(rivals.reduce((a, e) => a + e.resets, 0) <= 2, 'race: rivals need at most 2 resets');
+  check(rivals.every(e => e.bestLap !== null && e.bestLap > 55 && e.bestLap < 66), 'race: rival lap times between 55 and 66 s');
+  check([...boost.values()].reduce((a, b) => a + b, 0) > 15, 'race: rivals use their boost');
+  check([...air.values()].reduce((a, b) => a + b, 0) > 0.5, 'race: rivals pick up air canisters');
+  world.free();
+}
+
 process.exit(failed ? 1 : 0);
