@@ -1,6 +1,6 @@
 # Roadster (g002)
 
-A 3D browser racing game starring an electric sports car, built with **three.js** and **Rapier** physics. This first version is a single-player driving prototype: one car on one circuit, with a chase camera and handling tuned to feel good on a keyboard or a gamepad.
+A 3D browser racing game starring an electric sports car, built with **three.js** and **Rapier** physics. One car on one circuit, with a chase camera and handling tuned to feel good on a keyboard or a gamepad, and party races against up to seven friends: make a party, and they join by scanning its QR code or typing its 6-digit code.
 
 It builds on [g001 (Grand Prix Racer)](https://github.com/l4mb0lion/g001-racing): the driving help, input handling, graphics presets, lighting, surface shaders, camera rig, crash recovery and synthesised audio all come from there, adapted for an EV and for Rapier.
 
@@ -12,7 +12,8 @@ Once published (see [Publishing](#publishing)): **https://kovaforge.org/games/g0
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev            # http://localhost:5173
+npm run party-server   # in a second terminal, for party races (Vite passes /ws through to it)
 ```
 
 Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic graphics preset, `?tod=morning|noon|sunset|night` picks the time of day, `?autodrive` lets the autopilot drive (a demo lap), and `?safe` starts in safe graphics.
@@ -37,6 +38,14 @@ Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic gra
 | Time of day | T | |
 | Mute | M | |
 | Pause / help | Esc / H | Start |
+
+## Party races
+
+- **Create party** on the title screen (or in the Esc menu) makes a party straight away and shows a **QR code** and a **6-digit code**. Friends scan the QR code with a phone camera, which opens the game and joins the party, or pick **Join party** and type the code (`?code=123456` in the address does the same).
+- Up to 8 drivers. The lobby lists everyone with their paint colour (each driver gets a different one), lets you change your name, and the host picks the number of laps (1 to 10) and presses **Start race**.
+- Everyone lines up on a two-by-two grid, the server runs the start lights so they go out together, and the other cars show up on track with name tags, on the minimap, and in a live standings list. Each race is timed from lights out; after the first driver finishes the others have 60 seconds. Results go back to the lobby, ready for the next race.
+- In a race Esc opens a menu (the race keeps going) with **Leave party**. A dropped connection rejoins by itself within 10 seconds. Friends who join during a race wait in the lobby for the next one. If the host leaves, the next driver becomes host.
+- Each game simulates its own car and shares its position 20 times a second; the other cars are drawn 100 ms behind so their motion is smooth. They are ghosts for now: cars don't collide with each other.
 
 ## The car
 
@@ -78,7 +87,9 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Vapour puffs and jet cones; canisters | `src/render/vapour.ts`, `canisterScene.ts` |
 | Input, audio, crash recovery | `src/core/` |
 | HUD and overlays | `src/ui/hud.ts` |
-| Game loop (120 Hz physics, interpolated rendering), laps | `src/game.ts` |
+| Game loop (120 Hz physics, interpolated rendering), laps, party races | `src/game.ts` |
+| Party server: lobby, codes, start lights, state relay, results | `server/party-core.ts` (shared), `worker/index.ts` (Durable Object), `server/server.ts` (local) |
+| Party client, screens with the QR code, the other cars | `src/net/party.ts`, `src/ui/partyUi.ts`, `src/render/remoteCars.ts` |
 
 Physics runs at a fixed 120 Hz and the renderer interpolates between steps, so the car looks smooth at any frame rate. There are no image or audio files: textures are drawn on canvases and every sound is synthesised with Web Audio.
 
@@ -92,11 +103,14 @@ npm run track-check   # circuit length, corner radii and clearances
 npm run build         # production build in dist/
 npm run browser-test  # (with `npm run dev` running) drives the real game in headless Chromium
                       # and saves screenshots to test-results/
+npm run party-test    # party server: create, join by code, start lights, state relay, results
+npm run party-browser-test   # (with dev + party-server running) three browsers: create a party,
+                      # join by the QR link and by typing the code, race, results
 ```
 
 ## Publishing
 
-The game is published the same way as g001: as its own Cloudflare Worker, `g002-roadster`, on the Delpach account. Static assets serve the game at **kovaforge.org/games/g002/** (a route that takes precedence over the `kovaforge-home` Worker for that path only) and at **roadster.kovaforge.org** (a custom domain). See `wrangler.jsonc` and `worker/index.ts`.
+The game is published the same way as g001: as its own Cloudflare Worker, `g002-roadster`, on the Delpach account. Static assets serve the game at **kovaforge.org/games/g002/** (a route that takes precedence over the `kovaforge-home` Worker for that path only) and at **roadster.kovaforge.org** (a custom domain). Each party runs in its own Durable Object (`PartyRoom`, SQLite-backed, which the Workers Free plan includes), reached over a WebSocket at `/games/g002/ws`; the Worker picks a random 6-digit code and tries another if that room is still in use. See `wrangler.jsonc` and `worker/index.ts`. `npx wrangler dev` runs the Worker and its Durable Objects locally (after `npm run build:kovaforge`), and `npm run party-test -- ws://localhost:8787/ws` tests it.
 
 **Automatic deploys on every push to `main`:** add a repository secret named `CLOUDFLARE_API_TOKEN` (GitHub → Settings → Secrets and variables → Actions). The same kind of token as g001 works: the *Edit Cloudflare Workers* template scoped to the Delpach account and the kovaforge.org zone. The workflow in `.github/workflows/deploy.yml` type-checks, runs the handling test, builds and deploys, then checks both addresses. Pull requests run the checks without deploying. To pause deploys, set the repository variable `DEPLOY_DISABLED=true`.
 
