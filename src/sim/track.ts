@@ -25,6 +25,8 @@ export class Track {
   readonly curv: Float64Array;
   /** arc length at each sample */
   readonly s: Float64Array;
+  /** kerbs on both edges through the corners */
+  readonly kerb: boolean[];
   readonly halfWidth = ROAD_HALF_WIDTH;
   readonly wallOffset = WALL_OFFSET;
   readonly minX: number; readonly maxX: number; readonly minZ: number; readonly maxZ: number;
@@ -56,6 +58,8 @@ export class Track {
       // heading = atan2(x, z) grows when turning left (the car's right is -x when it faces +z)
       this.curv[i] = dh / (4 * SPACING);
     }
+    const tight = Array.from(this.curv, c => Math.abs(c) > 1 / 130);
+    this.kerb = tight.map((_, i) => { for (let k = -6; k <= 6; k++) if (tight[this.wrap(i + k)]) return true; return false; });
     this.minX = Math.min(...this.px); this.maxX = Math.max(...this.px);
     this.minZ = Math.min(...this.pz); this.maxZ = Math.max(...this.pz);
   }

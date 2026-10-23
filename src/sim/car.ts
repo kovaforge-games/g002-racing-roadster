@@ -72,6 +72,8 @@ export class Car {
   /** driving help strength in physics (0 = off, 1 = full) */
   stability = 1;
   tractionControl = true;
+  /** per-wheel surface: 1 on tarmac and kerbs, lower on grass (set by the game each step) */
+  readonly surface = [1, 1, 1, 1];
   abs = true;
 
   // telemetry
@@ -177,13 +179,13 @@ export class Car {
       const front = WHEELS[i].front;
       const share = (front ? CAR.frontDriveShare : 1 - CAR.frontDriveShare) / 2;
       let f = drive * share;
-      if (this.tractionControl && f !== 0) f = Math.sign(f) * Math.min(Math.abs(f), CAR.grip * load[i] * 0.95);
+      if (this.tractionControl && f !== 0) f = Math.sign(f) * Math.min(Math.abs(f), CAR.grip * this.surface[i] * load[i] * 0.95);
       // Rapier ignores the brake on a wheel that has engine force, so only one is ever set
       let brake = 0;
       if (braking && !reversing) {
         const bShare = (front ? CAR.frontBrakeShare : 1 - CAR.frontBrakeShare) / 2;
         let force = CAR.brakeDecel * CAR.mass * inp.brake * bShare;
-        if (this.abs) force = Math.min(force, CAR.grip * load[i] * (front ? 0.97 : 0.9));
+        if (this.abs) force = Math.min(force, CAR.grip * this.surface[i] * load[i] * (front ? 0.97 : 0.9));
         brake = force * dt;
         f = 0;
       } else if (inp.throttle < 0.05 && !reversing && vF > 1) {
@@ -196,12 +198,15 @@ export class Car {
       v.setWheelEngineForce(i, f);
       v.setWheelBrake(i, brake);
       v.setWheelSideFrictionStiffness(i, inp.handbrake && !front ? 0.45 : 1);
+      v.setWheelFrictionSlip(i, CAR.grip * this.surface[i]);
     }
     this.powerKw = (drive * Math.max(0, vF) - regen - (braking ? Math.min(CAR.mass * 3, CAR.brakeDecel * CAR.mass * inp.brake) * Math.max(0, vF) * 0.4 : 0)) / 1000;
 
     // aero: drag against the motion, downforce along the car's down axis
     const drag = 0.5 * RHO * CAR.dragArea * speed;
-    const roll = speed > 0.3 && grounded ? CAR.rollResist * CAR.mass * G / speed : 0;
+    // rolling resistance, much higher on grass
+    const grass = this.surface.reduce((a, g, i) => a + (v.wheelIsInContact(i) ? 1 - g : 0), 0) / 4;
+    const roll = speed > 0.3 && grounded ? (CAR.rollResist + grass * 0.35) * CAR.mass * G / speed : 0;
     b.addForce({ x: -(drag + roll) * lv.x, y: -(drag + roll) * lv.y, z: -(drag + roll) * lv.z }, true);
     if (grounded) {
       const lift = 0.5 * RHO * CAR.liftArea * vF * vF;

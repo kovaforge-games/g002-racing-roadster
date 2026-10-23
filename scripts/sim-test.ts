@@ -6,6 +6,8 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { Car, type CarInputs } from '../src/sim/car';
 import { applyDrivingHelp, HELP_STABILITY, type DrivingHelp } from '../src/sim/assist';
 import { Track } from '../src/sim/track';
+import { Autopilot } from '../src/sim/autopilot';
+import { updateSurface } from '../src/sim/surface';
 import { Terrain } from '../src/sim/terrain';
 import { buildWorld, initPhysics, PHYSICS_DT } from '../src/sim/world';
 
@@ -68,36 +70,17 @@ function lap(driver: 'line' | 'keyboard', help: DrivingHelp, laps = 2) {
   car.stability = HELP_STABILITY[help];
   let hint = track.nearest(p.x, p.z).i, t = 0, lapStart = 0, s0 = 20, done = 0;
   const times: number[] = [];
-  let wallHits = 0, spins = 0, flips = 0, maxSlip = 0, keySteer = 0, lastWall = -10, spinning = false;
-  // speed target from curvature: v = sqrt(a / k), looking ahead for braking
-  const vMax = (i: number) => Math.sqrt(1.25 * 9.81 / Math.max(Math.abs(track.curv[track.wrap(i)]), 1e-4));
+  let wallHits = 0, spins = 0, flips = 0, maxSlip = 0, lastWall = -10, spinning = false, grassTime = 0;
+  const pilot = new Autopilot(track);
+  pilot.keyboard = driver === 'keyboard';
+  if (driver === 'keyboard') pilot.aggression = 1.06; // brakes a bit late
   while (done < laps && t < 400) {
     const pos = car.body.translation();
     const near = track.nearest(pos.x, pos.z, hint);
     hint = near.i;
-    // look-ahead target point on the centreline (a little inside on corners)
-    const look = 8 + Math.max(0, car.speed) * 0.55;
-    const target = track.pointAt(near.s + look, 0);
-    const { fwd, right } = car.axes();
-    const dx = target.x - pos.x, dz = target.z - pos.z;
-    const ang = Math.atan2(dx * right.x + dz * right.z, dx * fwd.x + dz * fwd.z);
-    let vT = 80;
-    for (let k = 0; k < 120; k += 3) {
-      const dist = k * 2;
-      vT = Math.min(vT, Math.sqrt(vMax(near.i + k) ** 2 + 2 * 9 * dist));
-    }
-    let steer = Math.max(-1, Math.min(1, ang * 3));
-    if (driver === 'keyboard') {
-      // digital keys ramped like the real input: full lock or nothing, with late reactions
-      const key = Math.abs(ang) > 0.03 ? Math.sign(ang) : 0;
-      const rate = key === 0 ? 8 : Math.sign(key) !== Math.sign(keySteer) ? 10 : 6;
-      keySteer += Math.max(-rate * dt, Math.min(rate * dt, key - keySteer));
-      steer = keySteer;
-      vT *= 1.06; // brakes a bit late
-    }
-    const throttle = car.speed < vT - 1 ? 1 : 0;
-    const brake = car.speed > vT + 2 ? 1 : 0;
-    const inp = applyDrivingHelp(help, { steer, throttle, brake, handbrake: false }, car);
+    updateSurface(car, track, hint);
+    if (car.surface.some(g => g < 1)) grassTime += dt;
+    const inp = applyDrivingHelp(help, pilot.drive(car, near.i, near.s, dt), car);
     car.step(inp); world.step(); t += dt;
 
     const slip = Math.abs(Math.atan2(car.vLat, Math.max(Math.abs(car.speed), 1)));
@@ -117,12 +100,12 @@ function lap(driver: 'line' | 'keyboard', help: DrivingHelp, laps = 2) {
     s0 = sNow;
   }
   world.free();
-  return { times, wallHits, spins, flips, maxSlip };
+  return { times, wallHits, spins, flips, maxSlip, grassTime };
 }
 
 for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'easy'], ['keyboard', 'medium'], ['keyboard', 'off']] as const) {
   const r = lap(driver, help);
-  console.log(`${driver.padEnd(8)} help=${help.padEnd(6)} laps ${r.times.map(x => x.toFixed(1)).join(' / ') || '-'} s, walls ${r.wallHits}, spins ${r.spins}, flips ${r.flips}, max slip ${(r.maxSlip * 57.3).toFixed(0)}°`);
+  console.log(`${driver.padEnd(8)} help=${help.padEnd(6)} laps ${r.times.map(x => x.toFixed(1)).join(' / ') || '-'} s, walls ${r.wallHits}, spins ${r.spins}, flips ${r.flips}, max slip ${(r.maxSlip * 57.3).toFixed(0)}°, wheels on grass ${r.grassTime.toFixed(1)} s`);
   if (help !== 'off') {
     check(r.times.length === 2, `${driver}/${help}: completes two laps`);
     check(r.spins === 0 && r.flips === 0, `${driver}/${help}: no spins or flips`);
