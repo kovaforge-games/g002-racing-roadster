@@ -46,7 +46,7 @@ const rocker = profile([[2.2, 0.33], [1.8, 0.3], [-1.8, 0.3], [-2.2, 0.36]]);
 /** the widest crease, a character line along the side */
 const wide = profile([[2.2, 0.37], [1.9, 0.45], [1.45, 0.51], [0.5, 0.51], [-0.8, 0.55], [-1.6, 0.59], [-2.2, 0.6]]);
 /** the sharp beltline: peaked over the front wheels, then rising in a wedge to the rear haunches */
-const belt = profile([[2.2, 0.4], [2.05, 0.5], [1.75, 0.7], [1.45, 0.78], [1.15, 0.745], [0.8, 0.705], [0.2, 0.72],
+const belt = profile([[2.2, 0.4], [2.05, 0.5], [1.75, 0.725], [1.45, 0.78], [1.15, 0.745], [0.8, 0.705], [0.2, 0.72],
   [-0.6, 0.8], [-1.2, 0.865], [-1.45, 0.885], [-1.8, 0.89], [-2.2, 0.885]]);
 /** half width of the V-shaped centre panel on the hood and the hatch: narrow at the nose */
 const vPanel = profile([[2.2, 0.14], [0.95, 0.5], [0.0, 0.5], [-1.5, 0.48], [-2.2, 0.4]]);
@@ -61,7 +61,9 @@ export const GLASS_FRONT = 0.95, GLASS_REAR = -1.55;
 export const WHEEL_Z = CAR.wheelbase / 2, WHEEL_X = CAR.track / 2, R = CAR.wheelRadius;
 /** 20" front and 21" rear wheels: the drawn radii, a little either side of the physics radius */
 export const WHEEL_R = { front: 0.343, rear: 0.367 };
-const ARCH_GAP = 0.035, ARCH_FLAT = 0.24, ARCH_SLOPE = 2.1;
+const ARCH_GAP = 0.03, ARCH_FLAT = 0.2, ARCH_SLOPE = 2.3;
+/** how far in from the side the arch is cut (just clear of the tyre's inner wall) */
+export const ARCH_DEPTH = 0.27;
 
 /** top of the wheel arch opening at z: a flat top with sloped sides, open below the axle */
 export function archY(z: number) {
@@ -106,41 +108,63 @@ function keyPoints(z: number) {
   return { pts, cabin: g };
 }
 
-/** points along span s of a section, with the arch cut out of the lower side */
-function spanPoints(z: number, k: THREE.Vector2[], s: number, cabin: number) {
-  const a = k[s], b = k[s + 1], out: THREE.Vector2[] = [];
-  const nx = b.y - a.y, ny = a.x - b.x, nl = Math.hypot(nx, ny) || 1;
-  const arch = archY(z), W = k[3].x;
-  for (let j = 0; j <= PER; j++) {
-    const t = j / PER, p = lerp2(a, b, t);
-    if (s === 7) {
-      // roof: a parabola that arrives level at the centreline; flat across the hood panel
-      p.y = a.y + (b.y - a.y) * (cabin * (1 - (1 - t) ** 2) + (1 - cabin) * t);
-    } else {
-      const bl = BULGE[s] * Math.sin(Math.PI * t);
-      // the outward side of the span is to the right of a -> b for the right half
-      p.x -= (nx / nl) * bl; p.y -= (ny / nl) * bl;
-    }
-    if (s <= 3 && arch > 0 && p.x > W - 0.32 && p.y < arch) p.y = arch;
-    out.push(new THREE.Vector2(Math.max(0, p.x), p.y));
+/** rounding radius at each key point: the creases stay crisp but catch a highlight */
+const FILLET = [0, 0.03, 0.012, 0.014, 0.012, 0.022, 0.01, 0.028, 0];
+const FILLET_STEPS = 4;
+
+/** the curve of span s from key s (t = 0) to key s + 1 (t = 1) */
+function spanAt(k: THREE.Vector2[], s: number, cabin: number, t: number) {
+  const a = k[s], b = k[s + 1], p = lerp2(a, b, t);
+  if (s === 7) {
+    // roof: a parabola that arrives level at the centreline; flat across the hood panel
+    p.y = a.y + (b.y - a.y) * (cabin * (1 - (1 - t) ** 2) + (1 - cabin) * t);
+  } else {
+    const nx = b.y - a.y, ny = a.x - b.x, nl = Math.hypot(nx, ny) || 1;
+    const bl = BULGE[s] * Math.sin(Math.PI * t);
+    // the outward side of the span is to the right of a -> b for the right half
+    p.x -= (nx / nl) * bl; p.y -= (ny / nl) * bl;
   }
-  return out;
+  return p;
 }
 
-interface Section { z: number; spans: THREE.Vector2[][]; cabin: number; outline: THREE.Vector2[] }
+interface Section { z: number; ring: THREE.Vector2[]; spans: number[]; cabin: number }
 
+/**
+ * The right half of the section at z, bottom centre to top centre, with every crease rounded by
+ * a small fillet, and the span each segment belongs to (for its material).
+ */
 function section(z: number): Section {
-  const { pts, cabin } = keyPoints(z);
-  const spans: THREE.Vector2[][] = [];
-  for (let s = 0; s < 8; s++) spans.push(spanPoints(z, pts, s, cabin));
-  // the unlifted outline, for closing the ends
-  const outline = pts.map(p => p.clone());
-  return { z, spans, cabin, outline };
+  const { pts: k, cabin } = keyPoints(z);
+  const ring: THREE.Vector2[] = [], label: number[] = [];
+  const arch = archY(z), W = k[3].x;
+  const push = (p: THREE.Vector2, s: number) => {
+    if (s <= 3 && arch > 0 && p.x > W - ARCH_DEPTH && p.y < arch) p.y = arch;
+    ring.push(new THREE.Vector2(Math.max(0, p.x), p.y)); label.push(s);
+  };
+  let prevEnd: THREE.Vector2 | null = null;
+  for (let s = 0; s < 8; s++) {
+    const len = k[s].distanceTo(k[s + 1]) || 1e-6;
+    const t0 = Math.min(0.3, FILLET[s] / len), t1 = 1 - Math.min(0.3, FILLET[s + 1] / len);
+    const a = spanAt(k, s, cabin, t0);
+    if (prevEnd) {
+      // quadratic fillet from the end of the last span, past the key, to the start of this one
+      for (let f = 1; f < FILLET_STEPS; f++) {
+        const u = f / FILLET_STEPS, c = k[s];
+        const p = new THREE.Vector2(
+          (1 - u) ** 2 * prevEnd.x + 2 * u * (1 - u) * c.x + u * u * a.x,
+          (1 - u) ** 2 * prevEnd.y + 2 * u * (1 - u) * c.y + u * u * a.y);
+        push(p, u <= 0.5 ? s - 1 : s);
+      }
+    }
+    for (let j = 0; j <= PER; j++) push(spanAt(k, s, cabin, t0 + (t1 - t0) * (j / PER)), s);
+    prevEnd = spanAt(k, s, cabin, t1);
+  }
+  // a segment takes the span of its lower point
+  return { z, ring, spans: label.slice(0, -1), cabin };
 }
 
 /** the body shell with three material groups: paint (0), glass (1) and the black lower body (2) */
-export function bodyGeometry() {
-  const NZ = 220;
+export function bodyGeometry(NZ = 300) {
   const secs: Section[] = [];
   for (let i = 0; i <= NZ; i++) {
     const u = i / NZ;
@@ -151,36 +175,26 @@ export function bodyGeometry() {
   const groups: number[][] = [[], [], []];
   const n = () => pos.length / 3;
 
-  // one surface per span (both halves joined across the centre for the floor and the roof),
-  // so normals are shared along the car and split at every crease
-  const block = (cols: (sec: Section) => THREE.Vector3[], mat: (i: number) => number, flip: boolean) => {
-    const base = n();
-    let w = 0;
-    for (const sec of secs) { const c = cols(sec); w = c.length; c.forEach(p => pos.push(p.x, p.y, p.z)); }
-    for (let i = 0; i < NZ; i++) for (let j = 0; j < w - 1; j++) {
-      const a = base + i * w + j, b = a + 1, c = a + w, d = c + 1;
-      groups[mat(i)].push(...(flip ? [a, b, c, b, d, c] : [a, c, b, b, c, d]));
-    }
-  };
-  const v3 = (p: THREE.Vector2, z: number, side: number) => new THREE.Vector3(p.x * side, p.y, z);
-  const across = (s: number) => (sec: Section) => {
-    const half = sec.spans[s];
-    // left roof edge -> centre -> right roof edge
-    return [...half.map(p => v3(p, sec.z, -1)), ...half.slice().reverse().slice(1).map(p => v3(p, sec.z, 1))];
-  };
-  const isGlass = (i: number) => glassAt[i] && glassAt[i + 1];
-  // the floor runs k1 -> k0, so build it from the right half outwards on both sides
-  block(sec => { const h = sec.spans[0].slice().reverse(); return [...h.map(p => v3(p, sec.z, 1)), ...h.slice().reverse().slice(1).map(p => v3(p, sec.z, -1))]; }, () => 2, true);
-  for (let s = 1; s < 7; s++) {
-    const mat = (i: number) => s < LOWER_SPANS ? 2 : s === 6 && isGlass(i) ? 1 : 0;
-    block(sec => sec.spans[s].map(p => v3(p, sec.z, 1)), mat, false);
-    block(sec => sec.spans[s].map(p => v3(p, sec.z, -1)), mat, true);
+  // one surface all the way round (bottom centre, up the right side, over the top and down the
+  // left), so normals are shared everywhere and the fillets give smooth, crisp creases
+  const ringOf = (sec: Section) => [
+    ...sec.ring.map(p => new THREE.Vector3(p.x, p.y, sec.z)),
+    ...sec.ring.slice(0, -1).reverse().map(p => new THREE.Vector3(-p.x, p.y, sec.z)),
+  ];
+  const spans = [...secs[0].spans, ...secs[0].spans.slice().reverse()];
+  const base = n();
+  let w = 0;
+  for (const sec of secs) { const c = ringOf(sec); w = c.length; c.forEach(p => pos.push(p.x, p.y, p.z)); }
+  for (let i = 0; i < NZ; i++) for (let j = 0; j < w - 1; j++) {
+    const a = base + i * w + j, b = a + 1, c = a + w, d = c + 1;
+    const s = spans[j];
+    const mat = s < LOWER_SPANS ? 2 : s >= 6 && glassAt[i] && glassAt[i + 1] ? 1 : 0;
+    groups[mat].push(a, c, b, b, c, d);
   }
-  block(across(7), i => isGlass(i) ? 1 : 0, true);
 
   // flat end faces: a black nose band at the front and a vertical tail
   const cap = (sec: Section, mat: number, facing: number) => {
-    const ring = [...sec.outline.map(p => v3(p, sec.z, 1)), ...sec.outline.slice(1, -1).reverse().map(p => v3(p, sec.z, -1))];
+    const ring = ringOf(sec).slice(0, -1);
     const c = n();
     const mid = ring.reduce((m, p) => m.add(p), new THREE.Vector3()).divideScalar(ring.length);
     pos.push(mid.x, mid.y, mid.z);

@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CAR, type Car } from '../sim/car';
-import { ARCH_REACH, R, WHEEL_R, WHEEL_X, WHEEL_Z, Projector, archY, beltAt, bodyGeometry, line, rockerAt, widthAt } from './carBody';
+import { ARCH_DEPTH, ARCH_REACH, R, WHEEL_R, WHEEL_X, WHEEL_Z, Projector, archY, beltAt, bodyGeometry, line, rockerAt, widthAt } from './carBody';
 
 export const PAINTS = [
   { name: 'Anodised White', color: 0xe6e8e6, metalness: 0.2, roughness: 0.34 },
@@ -27,7 +27,7 @@ function archLiners() {
       const z = wz - ARCH_REACH + (2 * ARCH_REACH * k) / N;
       const y = Math.max(archY(z), 0.15) - 0.004, W = widthAt(z);
       // inner wall, ceiling inner edge, ceiling outer edge
-      pos.push(side * (W - 0.33), 0.14, z, side * (W - 0.33), y, z, side * (W - 0.012), y, z);
+      pos.push(side * (W - ARCH_DEPTH), 0.14, z, side * (W - ARCH_DEPTH), y, z, side * (W - 0.012), y, z);
       if (k) for (let r = 0; r < 2; r++) { const a = (k - 1) * 3 + r, b = k * 3 + r; idx.push(a, b, a + 1, b, b + 1, a + 1); }
     }
     const g = new THREE.BufferGeometry();
@@ -123,6 +123,38 @@ function wingGeometry(span: number, chord: number) {
   return g;
 }
 
+/** the tail deck under the stowed wing, and how far the wing rises */
+const WING_DECK = 0.93, WING_RISE = 0.17;
+
+/** what you see through the glass: white seats with grey bolsters, a dash, a yoke and a console */
+function cabin() {
+  const g = new THREE.Group();
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.85 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xe8e5de, roughness: 0.6 });
+  const grey = new THREE.MeshStandardMaterial({ color: 0x5d6066, roughness: 0.9 });
+  const screen = new THREE.MeshStandardMaterial({ color: 0x0a0f18, emissive: 0x1d3a66, emissiveIntensity: 0.5, roughness: 0.2 });
+  const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, rx = 0) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    b.position.set(x, y, z); b.rotation.x = rx; g.add(b); return b;
+  };
+  box(1.56, 0.04, 2.0, dark, 0, 0.22, -0.2);                 // floor
+  box(1.5, 0.5, 0.06, dark, 0, 0.5, -1.12);                  // bulkhead behind the seats
+  for (const s of [-1, 1]) box(0.06, 0.42, 1.8, dark, s * 0.84, 0.44, -0.15); // door cards
+  box(1.56, 0.16, 0.4, dark, 0, 0.62, 0.66, -0.25);          // dash
+  box(0.36, 0.02, 0.2, screen, -0.02, 0.715, 0.5, -0.9);     // centre screen
+  box(0.2, 0.16, 1.1, dark, 0, 0.32, -0.2);                  // console
+  for (const x of [-0.37, 0.37]) {
+    box(0.44, 0.1, 0.5, white, x, 0.3, -0.42);               // cushion
+    box(0.44, 0.62, 0.1, white, x, 0.6, -0.74, -0.28);       // backrest
+    for (const s of [-1, 1]) box(0.06, 0.6, 0.12, grey, x + s * 0.22, 0.6, -0.72, -0.28); // bolsters
+  }
+  // a yoke in front of the driver (on the car's left, +x)
+  const yoke = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.017, 8, 28, Math.PI).rotateZ(Math.PI), dark);
+  yoke.scale.set(1, 0.7, 1); yoke.position.set(0.37, 0.66, 0.28); yoke.rotation.x = -0.35; g.add(yoke);
+  box(0.3, 0.03, 0.03, dark, 0.37, 0.66, 0.28, -0.35);
+  return g;
+}
+
 export class CarModel {
   readonly root = new THREE.Group();
   /** body shell: rolls and pitches with the load transfer, wheels stay put */
@@ -132,15 +164,23 @@ export class CarModel {
   private brakeLight!: THREE.MeshStandardMaterial;
   private headLight!: THREE.MeshStandardMaterial;
   private wing = new THREE.Group();
-  private wingAngle = 0.12;
+  private stalks = new THREE.Group();
+  private wingAngle = 0;
+  /** 0 stowed flush on the tail, 1 fully raised */
+  private wingLift = 0;
+  /** the spoiler pops up above about 80 km/h and stows again below about 60 */
+  spoilerUp = false;
+  onSpoiler?: (up: boolean) => void;
+  /** materials that take the live reflection probe when there is one */
+  private reflective: THREE.MeshStandardMaterial[] = [];
   private paintIndex = 0;
   private roll = 0; private pitch = 0;
 
   constructor() {
     const p = PAINTS[0];
     this.paint = new THREE.MeshPhysicalMaterial({ color: p.color, metalness: p.metalness, roughness: p.roughness, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1.15 });
-    // gold-tinted glass, like a visor
-    const glass = new THREE.MeshPhysicalMaterial({ color: 0x5a4418, metalness: 0.7, roughness: 0.04, envMapIntensity: 1.3, clearcoat: 1, clearcoatRoughness: 0.02 });
+    // gold-tinted glass, like a visor: mostly reflection, with the cabin showing through
+    const glass = new THREE.MeshPhysicalMaterial({ color: 0x7a5c22, metalness: 0.45, roughness: 0.03, envMapIntensity: 1.5, clearcoat: 1, clearcoatRoughness: 0.02, transparent: true, opacity: 0.62 });
     const lower = new THREE.MeshPhysicalMaterial({ color: 0x0b0b0c, roughness: 0.32, metalness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.2 });
     const trim = new THREE.MeshStandardMaterial({ color: 0x0c0c0d, roughness: 0.7 });
 
@@ -148,6 +188,8 @@ export class CarModel {
     this.shell.position.y = -CAR.comHeight;
     this.root.add(this.shell);
     const body = new THREE.Mesh(bodyGeometry(), [this.paint, glass, lower]);
+    this.reflective.push(this.paint, glass, lower);
+    this.shell.add(cabin());
     const under = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.05, 3.7), trim);
     under.position.set(0, 0.16, 0); this.shell.add(under);
     body.castShadow = true; body.receiveShadow = true;
@@ -163,6 +205,7 @@ export class CarModel {
     const tyreM = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.9 });
     const spokeM = new THREE.MeshPhysicalMaterial({ color: 0x0e0f11, metalness: 0.5, roughness: 0.3, clearcoat: 0.8 });
     const insertM = new THREE.MeshPhysicalMaterial({ color: 0xe9eae7, metalness: 0.1, roughness: 0.35, clearcoat: 0.6 });
+    this.reflective.push(spokeM, insertM);
     const axles = { front: wheelGeometries(WHEEL_R.front, 0.295), rear: wheelGeometries(WHEEL_R.rear, 0.335) };
     for (const [x, z] of [[WHEEL_X, WHEEL_Z], [-WHEEL_X, WHEEL_Z], [WHEEL_X, -WHEEL_Z], [-WHEEL_X, -WHEEL_Z]]) {
       const front = z > 0, wg = front ? axles.front : axles.rear;
@@ -200,6 +243,7 @@ export class CarModel {
     const lens = new THREE.MeshPhysicalMaterial({ color: 0x0b0d10, roughness: 0.05, metalness: 0.4, clearcoat: 1 });
     const drl = new THREE.MeshStandardMaterial({ color: 0xf4f8ff, emissive: 0xf0f6ff, emissiveIntensity: 2.2, roughness: 0.2 });
     const carbon = new THREE.MeshPhysicalMaterial({ map: carbonTexture(), roughness: 0.35, metalness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 });
+    this.reflective.push(gloss, lens, carbon);
 
     // a thin light bar across the full width of the black nose band
     add(pr.strip(line([-0.74, 0.39, F], [0.74, 0.39, F], 60), line([-0.74, 0.378, F], [0.74, 0.378, F], 60), front, 0.004, false), drl);
@@ -226,20 +270,48 @@ export class CarModel {
       this.shell.add(fan);
     }
 
-    // active rear wing on two short stalks over the tail
+    // active rear wing: it lies flush on the tail as a ducktail, and rises on two stalks at speed
     const wingM = carbon.clone(); wingM.map = carbon.map!.clone(); wingM.map.repeat.set(10, 1);
+    this.reflective.push(wingM);
     const blade = new THREE.Mesh(wingGeometry(1.72, 0.3), wingM); blade.castShadow = true;
     this.wing.add(blade);
     for (const x of [-0.86, 0.86]) {
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.09, 0.32), wingM);
-      plate.position.set(x, 0.01, -0.15); this.wing.add(plate);
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.06, 0.3), wingM);
+      plate.position.set(x, 0.005, -0.15); this.wing.add(plate);
     }
-    this.wing.position.set(0, 1.0, -1.86);
     this.shell.add(this.wing);
+    // stalks are unit-high boxes standing on the deck, stretched up to the blade
     for (const x of [-0.5, 0.5]) {
-      const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, 0.12), trim);
-      stalk.position.set(x, 0.96, -1.96); this.shell.add(stalk);
+      const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1, 0.1).translate(0, 0.5, 0), trim);
+      stalk.position.set(x, 0, 0); this.stalks.add(stalk);
     }
+    this.stalks.position.set(0, WING_DECK - 0.02, -1.98);
+    this.shell.add(this.stalks);
+    this.poseWing();
+  }
+
+  private poseWing() {
+    const y = WING_DECK + this.wingLift * WING_RISE;
+    this.wing.position.set(0, y, -1.85);
+    this.wing.rotation.x = this.wingAngle;
+    this.stalks.scale.y = Math.max(0.001, y - WING_DECK + 0.03);
+    this.stalks.visible = this.wingLift > 0.02;
+  }
+
+  /** showroom: raise or stow the spoiler without a physics car; `animate` eases it there */
+  private shownSpoiler = false;
+  showSpoiler(up: boolean) { this.shownSpoiler = up; this.spoilerUp = up; }
+
+  /** showroom: move the spoiler towards its shown position */
+  animate(dt: number) {
+    this.wingLift += ((this.shownSpoiler ? 1 : 0) - this.wingLift) * Math.min(1, dt * 4);
+    this.wingAngle += ((this.shownSpoiler ? 0.14 : 0) * Math.min(1, this.wingLift * 1.5) - this.wingAngle) * Math.min(1, dt * 5);
+    this.poseWing();
+  }
+
+  /** reflect a live capture of the surroundings (or null for the sky gradient) */
+  setReflections(tex: THREE.Texture | null) {
+    for (const m of this.reflective) { m.envMap = tex; m.needsUpdate = true; }
   }
 
   get paintName() { return PAINTS[this.paintIndex].name; }
@@ -262,10 +334,14 @@ export class CarModel {
       vw.spin.rotation.x = w.spin;
     });
     this.brakeLight.emissiveIntensity = braking ? 5 : 1.2;
-    // the wing stands up as an airbrake under hard braking, and flattens for low drag at speed
-    const target = braking && car.speed > 25 ? 1.05 : car.speed > 50 ? 0.03 : 0.12;
-    this.wingAngle += (target - this.wingAngle) * Math.min(1, dt * 5);
-    this.wing.rotation.x = this.wingAngle;
+    // the spoiler pops up above about 80 km/h and stows below about 60; once up it stands up as
+    // an airbrake under hard braking and trims flat for low drag at very high speed
+    const up = car.speed > 22 || (this.spoilerUp && car.speed > 16);
+    if (up !== this.spoilerUp) { this.spoilerUp = up; this.onSpoiler?.(up); }
+    this.wingLift += ((up ? 1 : 0) - this.wingLift) * Math.min(1, dt * 4);
+    const angle = !up ? 0 : braking && car.speed > 25 ? 1.05 : car.speed > 55 ? 0.03 : 0.14;
+    this.wingAngle += (angle * Math.min(1, this.wingLift * 1.5) - this.wingAngle) * Math.min(1, dt * 5);
+    this.poseWing();
     // visual load transfer: the physics centre of mass is low, so add the roll a real car shows
     const k = Math.min(1, dt * 6);
     this.roll += (THREE.MathUtils.clamp(-car.latAccel * 0.0042, -0.06, 0.06) - this.roll) * k;

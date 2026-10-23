@@ -117,3 +117,12 @@ h2 { margin: 0 0 8px; letter-spacing: 3px; }
   .timing { transform: scale(0.85); transform-origin: top left; }
   .standings { transform: scale(0.75); transform-origin: top right; }
 }
+
+/* showroom */
+.showroom-caption { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 16px 5vh; text-align: center; color: var(--fg); pointer-events: none; }
+.showroom-caption .brand.small { font-size: clamp(28px, 5vw, 56px); }
+.showroom-caption .hint { margin-top: 8px; font-size: 13px; color: var(--dim); }
+.showroom-caption .hint b { color: var(--fg); }
+.showroom-caption a { color: #38e8ff; pointer-events: auto; text-decoration: none; font-weight: 700; }
+.showroom-caption .paint { margin-top: 6px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); }
+.title .showroom-link { margin-top: 12px; font-size: 13px; color: #38e8ff; text-decoration: none; font-weight: 700; letter-spacing: 0.08em; }
