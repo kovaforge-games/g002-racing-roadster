@@ -52,7 +52,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; use
 @keyframes blink { 50% { opacity: 0.35; } }
 .air .gain { position: absolute; top: -20px; font-size: 13px; font-weight: 800; color: var(--accent); opacity: 0; transition: opacity 0.2s, transform 0.6s; }
 .air .gain.show { opacity: 1; transform: translateY(-8px); }
-.info { position: absolute; top: 20px; right: 20px; font-size: 12px; color: var(--dim); letter-spacing: 1px; text-shadow: 0 1px 3px #000a; }
+.standings { top: 16px; right: 16px; padding: 10px 14px 10px; min-width: 210px; }
+.standings.hidden { display: none; }
+.standings .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.standings .pos { font-size: 34px; font-weight: 800; letter-spacing: -1px; }
+.standings .pos small { font-size: 16px; color: var(--dim); font-weight: 700; margin-left: 2px; }
+.standings .lapof { font-size: 12px; letter-spacing: 3px; color: var(--accent); font-weight: 700; }
+.standings .row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 2px 0; color: var(--dim); }
+.standings .row b { width: 14px; text-align: right; color: var(--fg); }
+.standings .row i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #fff6; flex: none; }
+.standings .row span { flex: 1; white-space: nowrap; }
+.standings .row em { font-style: normal; font-size: 12px; }
+.standings .row.you { color: var(--fg); font-weight: 700; }
+.standings .row.you span { color: var(--accent); }
+.overlay.results { background: rgba(5, 8, 12, 0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.results h2 { font-size: 40px; margin: 0; letter-spacing: 2px; }
+.results .sub { color: var(--dim); letter-spacing: 2px; }
+.results table { border-collapse: collapse; font-size: 16px; margin: 10px 0; font-variant-numeric: tabular-nums; }
+.results td { padding: 6px 14px; border-bottom: 1px solid var(--edge); text-align: left; }
+.results td:last-child, .results td:nth-child(4) { text-align: right; color: var(--dim); }
+.results tr.you td { color: var(--accent); font-weight: 700; }
+.results p { color: var(--dim); }
+.info { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 12px; color: var(--dim); letter-spacing: 1px; text-shadow: 0 1px 3px #000a; }
 
 .toast { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -10px); font-size: 30px; font-weight: 800; letter-spacing: 2px;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6); opacity: 0; transition: opacity 0.2s, transform 0.2s; white-space: nowrap; }
@@ -89,7 +110,7 @@ h2 { margin: 0 0 8px; letter-spacing: 3px; }
 .err-banner code { opacity: .7; font-size: 12px; display: block; overflow-wrap: anywhere; }
 .btn { background: #fff1; color: #fff; border: 1px solid #fff3; border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
 
-/* ---------- party: title buttons, lobby with QR code, standings, name tags */
+/* ---------- party: title buttons, lobby with QR code */
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn.big { padding: 11px 22px; font-size: 16px; font-weight: 700; letter-spacing: 1px; border-radius: 10px; }
 .btn.primary { background: var(--accent); color: #04121a; border-color: transparent; }
@@ -130,25 +151,27 @@ body.in-party .solo-only, body:not(.in-party) .party-only { display: none; }
 .swatch { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #fff5; flex: none; }
 .laps { display: flex; align-items: center; gap: 10px; }
 .laps b { min-width: 18px; text-align: center; font-size: 18px; }
-.results h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: 2px; color: var(--accent); }
-.results ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 3px; }
-.results li span { display: inline-block; min-width: 120px; }
-.results li.me { color: var(--accent); font-weight: 700; }
-.results .time { font-variant-numeric: tabular-nums; color: var(--dim); }
+.party-results h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: 2px; color: var(--accent); }
+.party-results ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 3px; }
+.party-results li span { display: inline-block; min-width: 120px; }
+.party-results li.me { color: var(--accent); font-weight: 700; }
+.party-results .time { font-variant-numeric: tabular-nums; color: var(--dim); }
 .party-card .status { color: #ffd34d; }
 
-.standings { top: 44px; right: 16px; padding: 8px 12px; min-width: 150px; max-width: 220px; font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
-.standings.hidden { display: none; }
-.standings .pos { display: flex; gap: 8px; white-space: nowrap; overflow: hidden; }
-.standings .n { color: var(--dim); font-weight: 800; min-width: 14px; }
-.standings .who { overflow: hidden; text-overflow: ellipsis; }
-.standings .me { color: var(--accent); font-weight: 700; }
-.nametags { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
-.nametag { position: absolute; left: 0; top: 0; padding: 2px 8px; border-radius: 6px; background: rgba(6, 10, 16, 0.6); color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; will-change: transform; }
 
 @media (max-width: 720px) {
   .mapwrap { transform: scale(0.65); transform-origin: bottom left; }
   .dash { transform: scale(0.8); transform-origin: bottom right; }
   .air { transform: scale(0.8); transform-origin: bottom right; right: 222px; }
   .timing { transform: scale(0.85); transform-origin: top left; }
+  .standings { transform: scale(0.75); transform-origin: top right; }
 }
+
+/* showroom */
+.showroom-caption { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 16px 5vh; text-align: center; color: var(--fg); pointer-events: none; }
+.showroom-caption .brand.small { font-size: clamp(28px, 5vw, 56px); }
+.showroom-caption .hint { margin-top: 8px; font-size: 13px; color: var(--dim); }
+.showroom-caption .hint b { color: var(--fg); }
+.showroom-caption a { color: #38e8ff; pointer-events: auto; text-decoration: none; font-weight: 700; }
+.showroom-caption .paint { margin-top: 6px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); }
+.title .showroom-link { margin-top: 12px; font-size: 13px; color: #38e8ff; text-decoration: none; font-weight: 700; letter-spacing: 0.08em; }

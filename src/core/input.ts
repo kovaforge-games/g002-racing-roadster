@@ -2,7 +2,7 @@
 // gamepad (left stick, triggers) takes over whenever it asks for more.
 import type { CarInputs } from '../sim/car';
 
-export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop';
+export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop' | 'practice';
 
 const KEYS = {
   left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'],
@@ -11,7 +11,7 @@ const KEYS = {
 };
 const PRESS: Record<string, Action> = {
   KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'paint', KeyH: 'help', KeyT: 'time', KeyM: 'mute',
-  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', KeyE: 'hop', Enter: 'hop',
+  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', KeyE: 'hop', Enter: 'hop', KeyF: 'practice',
 };
 /** standard-mapping gamepad buttons: A hops, B boosts (held, read in poll) */
 const PAD_PRESS: Record<number, Action> = { 0: 'hop', 3: 'camera', 8: 'reset', 9: 'pause', 2: 'paint' };
@@ -31,8 +31,8 @@ class InputManager {
   private pressed = new Set<Action>();
   private padPrev: boolean[] = [];
   private steer = 0; private throttle = 0; private brake = 0;
-  /** any key, click, tap or pad button (used to start and to unlock audio) */
-  onAny: (() => void) | null = null;
+  /** any key, click, tap or pad button (used to start and to unlock audio); gets the key code */
+  onAny: ((code?: string) => void) | null = null;
   lastDevice: 'keyboard' | 'gamepad' = 'keyboard';
 
   init() {
@@ -44,7 +44,7 @@ class InputManager {
       this.down.add(e.code);
       this.lastDevice = 'keyboard';
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-      this.onAny?.();
+      this.onAny?.(e.code);
     });
     addEventListener('keyup', e => this.down.delete(e.code));
     addEventListener('blur', () => this.down.clear());

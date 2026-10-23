@@ -198,7 +198,7 @@ export class PartyUi {
       host ? h('button', { class: 'btn small', onclick: () => pc.setLaps(laps + 1), ...(laps >= 10 ? { disabled: true } : {}) }, '+') : null);
 
     const racing = st.phase !== 'lobby';
-    const results = this.lastResults && this.lastResults.length ? h('div', { class: 'results' }, h('h3', null, 'Last race'),
+    const results = this.lastResults && this.lastResults.length ? h('div', { class: 'party-results' }, h('h3', null, 'Last race'),
       h('ol', null, ...this.lastResults.map(r => h('li', { class: r.id === pc.id ? 'me' : '' }, h('span', null, r.name), h('span', { class: 'time' }, r.time !== null ? formatTime(r.time) : 'DNF'))))) : null;
 
     this.show(

@@ -66,7 +66,7 @@ try {
   for (const p of [host, typed]) await p.waitForFunction(() => document.querySelector('.laps b')?.textContent === '1', null, { timeout: 60000 });
   check(true, 'the host sets the laps for everyone');
   await page_click(host, 'Start race');
-  for (const p of [host, scan, typed]) await p.waitForFunction(() => window.__game.race !== null, null, { timeout: 90000 });
+  for (const p of [host, scan, typed]) await p.waitForFunction(() => window.__game.netRace !== null, null, { timeout: 90000 });
   check(true, 'everyone goes to the grid');
   await typed.screenshot({ path: 'test-results/party-4-grid.png' });
   for (const p of [host, scan, typed]) await p.waitForFunction(() => window.__game.phase === 'driving', null, { timeout: 120000 });
@@ -78,14 +78,14 @@ try {
   check(seen.cars === 2, `each driver sees the other two cars (${seen.cars})`);
   await typed.screenshot({ path: 'test-results/party-5-race.png' });
   await host.screenshot({ path: 'test-results/party-6-race-host.png' });
-  const standings = await typed.$$eval('.standings .who', els => els.map(e => e.textContent));
+  const standings = await typed.$$eval('.standings .row span', els => els.map(e => e.textContent));
   check(standings[0] === 'Ana', `the standings put the host in front (${standings.join(', ')})`);
 
   // finish: skip ahead to the flag on each car
-  for (const p of [host, typed, scan]) await p.evaluate(() => window.__game['finishRace']());
-  await host.waitForSelector('.results li', { timeout: 90000 });
+  for (const p of [host, typed, scan]) await p.evaluate(() => window.__game['finishPartyRace']());
+  await host.waitForSelector('.party-results li', { timeout: 90000 });
   // each driver times their race from lights out, so on a slow test machine the order can differ from the call order
-  const rows = await host.$$eval('.results li', els => els.map(e => [e.children[0].textContent, e.children[1].textContent]));
+  const rows = await host.$$eval('.party-results li', els => els.map(e => [e.children[0].textContent, e.children[1].textContent]));
   const secs = rows.map(r => { const [m, s] = r[1].split(':'); return Number(m) * 60 + Number(s); });
   check(rows.map(r => r[0]).sort().join() === 'Ana,Ben,Cleo' && secs.every((t, k) => k === 0 || t >= secs[k - 1]),
     `results list everyone, fastest first (${rows.map(r => r.join(' ')).join(', ')})`);

@@ -130,7 +130,7 @@ export class JetFx {
     this.group.visible = boost;
     if (boost) {
       const flick = 0.85 + Math.random() * 0.3;
-      this.mat.opacity = 0.75 * flick;
+      this.mat.opacity = 0.55 * flick;
       for (const c of this.cones) c.scale.set(1, 1, 1.3 * flick);
     }
     root.updateMatrixWorld();

@@ -54,6 +54,7 @@ export class Environment {
   private sky?: Sky;
   private stars?: THREE.Points;
   private clouds?: THREE.Mesh;
+  private backdrop?: THREE.Mesh;
 
   constructor(public scene: THREE.Scene, renderer: THREE.WebGLRenderer, tod: TimeOfDay, quality: Quality, wet = false) {
     const base = TOD[tod];
@@ -125,6 +126,10 @@ export class Environment {
       }
       g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       envScene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+      // the same gradient stands in for the over-bright physical sky in live reflections
+      this.backdrop = new THREE.Mesh(g.clone().scale(80, 80, 80), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+      this.backdrop.visible = false; this.backdrop.renderOrder = -3;
+      scene.add(this.backdrop);
       const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(6, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(p.sun).multiplyScalar(6) }));
       sunDisc.position.copy(this.sunDir).multiplyScalar(90);
       envScene.add(sunDisc);
@@ -165,6 +170,14 @@ export class Environment {
     if (this.sky) disposeResources(this.sky);
     if (this.stars) disposeResources(this.stars);
     if (this.clouds) disposeResources(this.clouds);
+    if (this.backdrop) disposeResources(this.backdrop);
+  }
+
+  /** while the reflection probe renders: swap the physical sky for its soft gradient */
+  setProbeMode(on: boolean) {
+    if (!this.backdrop) return;
+    this.backdrop.visible = on;
+    if (this.sky) this.sky.visible = !on;
   }
 
   /** keep the shadow frustum centred on the focus point */
@@ -174,6 +187,7 @@ export class Environment {
     this.sun.target.updateMatrixWorld();
     if (this.sky) this.sky.position.set(x, 0, z);
     if (this.stars) this.stars.position.set(x, 0, z);
+    if (this.backdrop) this.backdrop.position.set(x, 0, z);
     if (this.clouds) {
       // the layer follows the car but its texture stays put in the world, so the clouds drift past
       this.clouds.position.set(x, y + 650, z);
