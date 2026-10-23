@@ -30,9 +30,11 @@ export interface JetInputs {
   hop: boolean;
   /** hold to turn steering into roll in the air (the handbrake button) */
   airRoll: boolean;
+  /** stick pitch, -1 (nose up) .. 1 (nose down); without it, throttle and brake pitch the car */
+  pitch?: number;
 }
 
-export type JetEvent = 'hop' | 'landing' | 'clean-landing' | 'flip' | 'roll' | 'spin' | 'empty';
+export type JetEvent = 'launch' | 'hop' | 'landing' | 'clean-landing' | 'flip' | 'roll' | 'spin' | 'empty';
 
 export class Jets {
   /** 0..1 */
@@ -51,6 +53,9 @@ export class Jets {
   // rotation accumulated in the air, for flip and roll messages
   private airPitch = 0; private airRoll = 0; private airYaw = 0;
   private wasAirborne = false;
+  // inputs already held at take-off are ignored until released, so holding the throttle or
+  // steering through a hop doesn't send the car into a flip
+  private latch = { pitch: false, steer: false };
 
   /** call at the moment the lights go out; boost pressed inside the window gets a free surge */
   private launchClock = -1;
@@ -66,7 +71,7 @@ export class Jets {
     this.hopCooldown = Math.max(0, this.hopCooldown - dt);
     if (this.launchClock >= 0) {
       this.launchClock += dt;
-      if (inp.boost && this.launchClock < JETS.launchWindow) { this.freeBoost = JETS.launchBoost; this.launchClock = -1; }
+      if (inp.boost && this.launchClock < JETS.launchWindow) { this.freeBoost = JETS.launchBoost; this.launchClock = -1; this.events.push('launch'); }
       else if (this.launchClock >= JETS.launchWindow) this.launchClock = -1;
     }
 
@@ -99,6 +104,8 @@ export class Jets {
 
     // attitude jets in the air: chase a target rate on each local axis
     this.attitude = 0;
+    const stick = inp.pitch ?? 0;
+    const rawPitch = Math.abs(stick) > 0.15 ? stick : drive.throttle - drive.brake;
     if (car.airborne) {
       this.airTime += dt;
       const av = b.angvel();
@@ -109,9 +116,12 @@ export class Jets {
       const wy = av.x * up.x + av.y * up.y + av.z * up.z;
       const wz = av.x * fwd.x + av.y * fwd.y + av.z * fwd.z;
       this.airPitch += wx * dt; this.airYaw += wy * dt; this.airRoll += wz * dt;
-      const pitchIn = drive.throttle - drive.brake;
-      const yawIn = inp.airRoll ? 0 : drive.steer;
-      const rollIn = inp.airRoll ? drive.steer : 0;
+      if (Math.abs(rawPitch) < 0.1) this.latch.pitch = false;
+      if (Math.abs(drive.steer) < 0.1) this.latch.steer = false;
+      const pitchIn = this.latch.pitch ? 0 : rawPitch;
+      const steerIn = this.latch.steer ? 0 : drive.steer;
+      const yawIn = inp.airRoll ? 0 : steerIn;
+      const rollIn = inp.airRoll ? steerIn : 0;
       const active = this.airTime > 0.08 && this.tank > 0 && (Math.abs(pitchIn) > 0.05 || Math.abs(yawIn) > 0.05 || Math.abs(rollIn) > 0.05);
       const I = { x: 3300, y: 3600, z: 760 };
       const k = JETS.response;
@@ -151,6 +161,7 @@ export class Jets {
         } else this.events.push('landing');
       }
       this.airTime = 0; this.airPitch = 0; this.airRoll = 0; this.airYaw = 0;
+      this.latch = { pitch: Math.abs(rawPitch) > 0.3, steer: Math.abs(drive.steer) > 0.3 };
     }
     this.wasAirborne = car.airborne;
   }

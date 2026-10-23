@@ -111,6 +111,16 @@ const check = (ok: boolean, msg: string) => { console.log(`${ok ? '  ok ' : 'FAI
   run(idle, none, t => t > 2);
   console.log(`air control: ${flipped ? 'went over' : 'did not rotate'}, events ${events.join(', ') || '-'}, upright ${car.axes().up.y.toFixed(2)}`);
   check(flipped, 'holding pitch in the air rotates the car past upside down');
+
+  // throttle and steering already held at take-off don't pitch or yaw the car
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run({ ...idle, throttle: 1 }, none, () => car.speed > 40);
+  const held = { ...idle, throttle: 1, steer: 0.5 };
+  car.step(held); jets.step(car, held, { ...none, hop: true }); world.step();
+  let minUp = 1, yaw = 0;
+  run(held, none, t => { minUp = Math.min(minUp, car.axes().up.y); if (car.airborne) yaw += Math.abs(car.yawRate) * dt; return t > 0.2 && !car.airborne || t > 3; });
+  console.log(`hop holding throttle and steering: lowest up ${minUp.toFixed(2)}, yaw in the air ${(yaw * 57.3).toFixed(0)}°`);
+  check(minUp > 0.9 && yaw < 0.3, 'inputs held through a hop keep the car level');
 }
 
 // ---- laps of the circuit

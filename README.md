@@ -21,9 +21,13 @@ Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic gra
 
 | Action | Keyboard | Gamepad |
 |---|---|---|
-| Accelerate / brake | W S or ↑ ↓ | RT / LT (or A / B) |
+| Accelerate / brake | W S or ↑ ↓ | RT / LT |
 | Steer | A D or ← → | Left stick |
 | Reverse | Hold brake when stopped | Hold LT when stopped |
+| Boost (rear jets) | Shift | B |
+| Hop (underbody jets) | E or Enter | A |
+| In the air: pitch / yaw | W S / A D | Left stick |
+| In the air: roll | Hold Space + A D | Hold RB + left stick |
 | Handbrake | Space | RB |
 | Look back | B | LB |
 | Camera (chase, far, hood, bumper) | C | Y |
@@ -43,6 +47,16 @@ A fictional electric sports coupe, inspired by modern EVs (no real brand names, 
 - **Driving help** (from g001, default Easy) catches slides: it limits steering to what the tyres can hold and counter-steers when the rear steps out, and the physics damps excess yaw. It never steers you towards the line or brakes for you. Easy and Medium also keep traction control and ABS on; Off is fully raw.
 - **Visuals:** a procedural body shaped like a modern electric roadster (low nose, peaked front fenders, teardrop glass cabin, wide rear haunches, ducktail), with slim LED headlights, a full-width tail light, intakes, splitter and diffuser projected onto the surface, 20" wheels, body roll and pitch, skid marks, and six paint colours. No real brand names or logos.
 
+## Thrusters and the air tank
+
+The car carries cold-gas thrusters fed by one compressed-air tank (the HUD's AIR gauge). Nothing burns: the jets vent white vapour.
+
+- **Boost:** rear jets add about 0.9 g of thrust (0-100 km/h drops from 2.5 s to 1.4 s) and push the car past its normal top speed, up to about 340 km/h. A full tank lasts about 4 seconds of boost. Hit boost within 0.3 s of the lights going out for a free **perfect launch**.
+- **Hop:** a burst from the underbody jets lifts the car about 2.2 m for 1.3 s of air time. It costs a fifth of the tank and has a short cooldown (the dot under the gauge).
+- **Air control:** in the air, throttle and brake (or the stick) pitch the car, steering yaws it, and holding the handbrake turns steering into roll. Inputs you were already holding at take-off are ignored until you let go, so a hop at full throttle stays level. Flips, barrel rolls and 360s get called out, and a wheels-down landing gives a small kick of speed. With driving help on, the car eases itself back to wheels-down when the sticks are centred.
+- **Refilling:** the tank never refills by itself. Six rows of glowing air canisters sit off the racing line around the lap (cyan dots on the map); each one adds 12% and comes back 8 seconds after it is taken.
+- The debris fence on the barriers is solid, so a hop can't clear the circuit.
+
 ## The circuit
 
 Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses and fast sweepers, and gentle elevation changes (about ±6 m). Kerbs line every corner, concrete barriers and a debris fence run the whole lap, and the main straight has a grandstand, a start gantry with lights, and a charging pavilion. The landscape rolls into forested hills and snow-capped mountains.
@@ -58,8 +72,10 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Driving help (input side) | `src/sim/assist.ts` |
 | Grass and kerbs | `src/sim/surface.ts` |
 | Autopilot (tests and demo) | `src/sim/autopilot.ts` |
+| Thrusters and air tank; air canisters | `src/sim/jets.ts`, `src/sim/canisters.ts` |
 | Renderer, presets, lighting, surfaces | `src/render/renderer.ts`, `graphics.ts`, `environment.ts`, `surfaces.ts` |
 | Scenery, car body and model, skid marks, cameras | `src/render/trackScene.ts`, `carBody.ts`, `carModel.ts`, `skids.ts`, `cameras.ts` |
+| Vapour puffs and jet cones; canisters | `src/render/vapour.ts`, `canisterScene.ts` |
 | Input, audio, crash recovery | `src/core/` |
 | HUD and overlays | `src/ui/hud.ts` |
 | Game loop (120 Hz physics, interpolated rendering), laps | `src/game.ts` |
@@ -70,8 +86,8 @@ Physics runs at a fixed 120 Hz and the renderer interpolates between steps, so t
 
 ```bash
 npm run typecheck     # TypeScript
-npm run sim-test      # headless handling test: 0-100, top speed, braking, grip, and laps
-                      # with a line-following and a keyboard-style driver on each help level
+npm run sim-test      # headless handling test: 0-100, top speed, braking, grip, boost, hops,
+                      # air control, and laps with a line-following and a keyboard-style driver
 npm run track-check   # circuit length, corner radii and clearances
 npm run build         # production build in dist/
 npm run browser-test  # (with `npm run dev` running) drives the real game in headless Chromium

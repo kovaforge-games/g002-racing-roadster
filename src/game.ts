@@ -1,5 +1,6 @@
 // The game: builds the world, runs physics at a fixed 120 Hz with interpolated rendering,
-// and handles the start lights, lap timing, resets and the player's options.
+// and handles the start lights, lap timing, thrusters and air pickups, resets and the player's
+// options.
 import * as THREE from 'three';
 import { Track } from './sim/track';
 import { Terrain } from './sim/terrain';
@@ -8,6 +9,8 @@ import { Car } from './sim/car';
 import { applyDrivingHelp, HELP_STABILITY, type DrivingHelp } from './sim/assist';
 import { updateSurface } from './sim/surface';
 import { Autopilot } from './sim/autopilot';
+import { Jets, type JetEvent } from './sim/jets';
+import { Canisters, CANISTER_AIR } from './sim/canisters';
 import { Renderer, type GraphicsSettings } from './render/renderer';
 import type { Quality } from './render/graphics';
 import { Environment, type TimeOfDay } from './render/environment';
@@ -15,13 +18,19 @@ import { TrackScene } from './render/trackScene';
 import { CarModel } from './render/carModel';
 import { CameraRig } from './render/cameras';
 import { SkidMarks } from './render/skids';
+import { Vapour, JetFx } from './render/vapour';
+import { CanisterScene } from './render/canisterScene';
 import { input, type DriveInput } from './core/input';
 import { audio } from './core/audio';
 import { Hud } from './ui/hud';
 
 const TIMES: TimeOfDay[] = ['noon', 'sunset', 'night', 'morning'];
 const HELP_LABEL: Record<DrivingHelp, string> = { easy: 'Easy', medium: 'Medium', off: 'Off' };
-const GRID_S = -32; // the car starts 32 m before the line, so lap 1 is a flying lap
+const GRID_S = -32;
+const JET_MESSAGES: Partial<Record<JetEvent, [string, number]>> = {
+  launch: ['Perfect launch!', 1.4], flip: ['Flip!', 1.2], roll: ['Barrel roll!', 1.2], spin: ['360!', 1.2],
+  'clean-landing': ['Clean landing', 1], empty: ['Air tank empty', 1.6],
+}; // the car starts 32 m before the line, so lap 1 is a flying lap
 
 function store(): Storage | null { try { return localStorage; } catch { return null; } }
 
@@ -43,6 +52,17 @@ export class Game {
   private skids = new SkidMarks();
   readonly hud: Hud;
   private pilot: Autopilot | null = null;
+  readonly jets = new Jets();
+  readonly canisters: Canisters;
+  private canisterScene: CanisterScene;
+  private vapour = new Vapour();
+  private jetFx: JetFx;
+  /** a hop was pressed this frame and not yet given to the physics */
+  private hopQueued = false;
+  /** jet events and pickups since the last frame */
+  private frameEvents: JetEvent[] = [];
+  private frameHop = false;
+  private frameAir = 0;
 
   phase: Phase = 'title';
   paused = false;
@@ -54,10 +74,11 @@ export class Game {
   private lightsT = 0; private lightsHold = 0;
   private flipT = 0;
   private kerb = 0;
-  private inp: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, lookBack: false };
+  private inp: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, lookBack: false, boost: false, hop: false, pitch: 0 };
   private prev = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private curr = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private titleAngle = 0;
+  private airHeading: number | null = null;
   /** test hook: a fixed camera instead of the driving rig */
   debugCam: { pos: [number, number, number]; target: [number, number, number] } | null = null;
 
@@ -85,7 +106,10 @@ export class Game {
     if (opts.tod) this.todIndex = Math.max(0, TIMES.indexOf(opts.tod));
     this.buildEnvironment();
     this.trackScene = new TrackScene(this.track, this.terrain, quality);
-    this.scene.add(this.trackScene.group, this.model.root, this.skids.mesh);
+    this.canisters = new Canisters(this.track);
+    this.canisterScene = new CanisterScene(this.canisters);
+    this.jetFx = new JetFx(this.model.root, this.vapour);
+    this.scene.add(this.trackScene.group, this.canisterScene.group, this.model.root, this.skids.mesh, this.vapour.points);
 
     const g = this.track.pointAt(GRID_S, 0);
     this.car = new Car(this.world, g.x, g.y, g.z, this.track.headingAt(GRID_S));
@@ -97,6 +121,7 @@ export class Game {
     if (opts.autodrive) { this.pilot = new Autopilot(this.track); }
 
     this.hud = new Hud(this.track);
+    this.hud.markAir(this.canisters.list);
     this.hud.setLights(-1);
     // let the car settle on its springs before the first frame
     for (let k = 0; k < 120; k++) { this.car.step({ steer: 0, throttle: 0, brake: 0, handbrake: true }); this.world.step(); }
@@ -111,6 +136,7 @@ export class Game {
     this.env = new Environment(this.scene, this.renderer.gl, tod, this.renderer.quality);
     this.renderer.setBloom(this.env.preset.night ? 0.8 : 0.12, this.env.preset.night ? 0.85 : 1.6);
     this.model.setNight(this.env.preset.night);
+    this.vapour.setNight(this.env.preset.night);
   }
 
   start() {
@@ -141,6 +167,7 @@ export class Game {
     const s = near.s - 5;
     const p = this.track.pointAt(s, Math.max(-3, Math.min(3, near.lateral)));
     this.car.place(p.x, p.y, p.z, this.track.headingAt(s));
+    this.jets.reset();
     this.skids.clear();
     this.rig.reset();
     this.snapshot(this.curr); this.snapshot(this.prev);
@@ -165,13 +192,23 @@ export class Game {
     const near = this.track.nearest(pos.x, pos.z, this.hint, 20);
     this.hint = near.i;
     this.kerb = updateSurface(this.car, this.track, this.hint);
-    let inp: DriveInput = this.inp;
-    if (this.pilot && this.phase === 'driving') inp = { ...this.pilot.drive(this.car, near.i, near.s, dt), lookBack: false };
-    if (this.phase !== 'driving') inp = { steer: 0, throttle: 0, brake: 0, handbrake: true, lookBack: false };
+    let inp: DriveInput = { ...this.inp, hop: this.hopQueued };
+    this.hopQueued = false;
+    if (this.pilot && this.phase === 'driving') inp = { ...this.pilot.drive(this.car, near.i, near.s, dt), lookBack: false, boost: false, hop: false, pitch: 0 };
+    if (this.phase !== 'driving') inp = { steer: 0, throttle: 0, brake: 0, handbrake: true, lookBack: false, boost: false, hop: false, pitch: 0 };
     const assisted = applyDrivingHelp(this.help, inp, this.car);
     this.car.step(assisted);
+    // in the air the raw sticks drive the attitude jets (the driving help only shapes steering)
+    this.jets.step(this.car, inp, { boost: inp.boost, hop: inp.hop, airRoll: inp.handbrake, pitch: inp.pitch }, dt, this.help !== 'off');
+    this.frameEvents.push(...this.jets.events);
+    if (this.jets.hopped) this.frameHop = true;
     this.world.step();
     this.simTime += dt;
+
+    this.canisters.step(dt);
+    const p = this.car.body.translation();
+    const got = this.canisters.collect(p.x, p.y, p.z);
+    if (got) { this.jets.refill(got * CANISTER_AIR); this.frameAir += got * CANISTER_AIR; }
 
     // lap timing: crossing s = 0 forwards; a lap counts only if it went past halfway
     const s = near.s;
@@ -201,12 +238,13 @@ export class Game {
     this.last = now;
     this.handleActions();
     this.inp = input.poll(dt);
+    if (this.inp.hop) this.hopQueued = true;
 
     if (this.phase === 'lights' && !this.paused) {
       this.lightsT += dt;
       const lit = Math.min(5, Math.floor(this.lightsT / 0.8));
       if (this.lightsT < 4.0 + this.lightsHold) { this.hud.setLights(lit); this.trackScene.setStartLights(lit); }
-      else { this.phase = 'driving'; this.hud.setLights(0); this.trackScene.setStartLights(0); this.hud.message('GO!', 1.2); setTimeout(() => this.hud.setLights(-1), 900); }
+      else { this.phase = 'driving'; this.jets.armLaunch(); this.hud.setLights(0); this.trackScene.setStartLights(0); this.hud.message('GO!', 1.2); setTimeout(() => this.hud.setLights(-1), 900); }
     }
 
     if (!this.paused) {
@@ -227,12 +265,24 @@ export class Game {
     const braking = this.phase === 'driving' && this.inp.brake > 0.1 && this.car.speed > 0.5;
     this.model.update(this.car, braking, dt);
     this.skids.update(this.car);
+    const lv = this.car.body.linvel();
+    this.jetFx.update(this.jets, this.frameHop, root, lv, dt);
+    this.vapour.update(dt, this.rig.cam, this.renderer.gl.domElement.height);
+    this.canisterScene.update(dt);
+    if (this.frameHop) audio.hop();
+    if (this.frameAir > 0) { audio.pickup(); this.hud.airGained(this.frameAir); }
+    for (const ev of this.frameEvents) { const m = JET_MESSAGES[ev]; if (m) this.hud.message(m[0], m[1]); }
+    this.frameEvents.length = 0; this.frameHop = false; this.frameAir = 0;
+    this.rig.boost = this.jets.boosting ? 1 : 0;
 
     const impact = this.car.takeImpact();
     if (impact > 2.5) { this.rig.kick(Math.min(1, impact / 10)); audio.impact(impact); }
 
     const e = new THREE.Euler().setFromQuaternion(root.quaternion, 'YXZ');
-    const focus = { x: root.position.x, y: root.position.y, z: root.position.z, heading: e.y, pitch: e.x, roll: e.z, speed: this.car.speed };
+    // in the air (flips, rolls) the chase camera follows the direction of travel, not the nose
+    if (this.car.airborne && Math.hypot(lv.x, lv.z) > 4) this.airHeading = Math.atan2(lv.x, lv.z);
+    else if (!this.car.airborne) this.airHeading = null;
+    const focus = { x: root.position.x, y: root.position.y, z: root.position.z, heading: this.airHeading ?? e.y, pitch: e.x, roll: e.z, speed: this.car.speed };
     if (this.phase === 'title') {
       // slow orbit around the car on the grid
       this.titleAngle += dt * 0.18;
@@ -245,6 +295,8 @@ export class Game {
 
     const slip = Math.max(...this.car.wheels.map(w => w.slip));
     audio.update(this.car.speed, Math.max(-1, Math.min(1, this.car.powerKw / 300)), slip, this.kerb, this.paused || this.phase === 'title');
+    audio.jets(this.jets.boosting ? 1 : 0, this.jets.attitude, this.jets.tank, this.paused || this.phase === 'title');
+    this.hud.setAir(this.jets.tank, this.jets.boosting, this.jets.hopCooldown <= 0 && this.jets.tank >= 0.1, dt);
     this.hud.update(dt, {
       speed: this.car.speed, powerKw: this.car.powerKw, lap: this.lap,
       current: this.lapStart !== null ? this.simTime - this.lapStart : null, last: this.lastLap, best: this.bestLap,

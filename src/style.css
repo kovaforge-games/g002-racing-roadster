@@ -38,6 +38,20 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; use
 .mapwrap { left: 16px; bottom: 16px; width: 220px; height: 220px; padding: 0; }
 .mapwrap .map { position: absolute; inset: 0; }
 
+.air { right: 268px; bottom: 16px; width: 62px; height: 160px; display: flex; flex-direction: column; align-items: center; padding: 10px 0 8px; box-sizing: border-box; }
+.air .label { font-size: 10px; letter-spacing: 3px; color: var(--dim); font-weight: 700; }
+.air .tank { position: relative; flex: 1; width: 18px; margin: 7px 0; border-radius: 9px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.air .fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 9px; background: linear-gradient(#bff4ff, var(--accent)); transition: background 0.2s; }
+.air .ticks { position: absolute; inset: 0; background: repeating-linear-gradient(transparent 0 calc(20% - 1px), rgba(0, 0, 0, 0.35) calc(20% - 1px) 20%); }
+.air .pct { font-size: 13px; font-weight: 800; }
+.air .hop { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; background: rgba(255, 255, 255, 0.15); }
+.air .hop.ready { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.air.boost .fill { box-shadow: 0 0 14px var(--accent); background: linear-gradient(#fff, #9ff0ff); }
+.air.low .fill { background: linear-gradient(#ffd08a, #ff8a3c); }
+.air.low .pct { color: #ffb067; animation: blink 0.8s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.35; } }
+.air .gain { position: absolute; top: -20px; font-size: 13px; font-weight: 800; color: var(--accent); opacity: 0; transition: opacity 0.2s, transform 0.6s; }
+.air .gain.show { opacity: 1; transform: translateY(-8px); }
 .info { position: absolute; top: 20px; right: 20px; font-size: 12px; color: var(--dim); letter-spacing: 1px; text-shadow: 0 1px 3px #000a; }
 
 .toast { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -10px); font-size: 30px; font-weight: 800; letter-spacing: 2px;
@@ -78,5 +92,6 @@ h2 { margin: 0 0 8px; letter-spacing: 3px; }
 @media (max-width: 720px) {
   .mapwrap { transform: scale(0.65); transform-origin: bottom left; }
   .dash { transform: scale(0.8); transform-origin: bottom right; }
+  .air { transform: scale(0.8); transform-origin: bottom right; right: 222px; }
   .timing { transform: scale(0.85); transform-origin: top left; }
 }

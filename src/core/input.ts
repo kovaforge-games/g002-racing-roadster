@@ -2,21 +2,29 @@
 // gamepad (left stick, triggers) takes over whenever it asks for more.
 import type { CarInputs } from '../sim/car';
 
-export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3';
+export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop';
 
 const KEYS = {
   left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'],
   throttle: ['ArrowUp', 'KeyW'], brake: ['ArrowDown', 'KeyS'],
-  handbrake: ['Space'], lookBack: ['KeyB'],
+  handbrake: ['Space'], lookBack: ['KeyB'], boost: ['ShiftLeft', 'ShiftRight'],
 };
 const PRESS: Record<string, Action> = {
   KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'paint', KeyH: 'help', KeyT: 'time', KeyM: 'mute',
-  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3',
+  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', KeyE: 'hop', Enter: 'hop',
 };
-/** standard-mapping gamepad buttons */
-const PAD_PRESS: Record<number, Action> = { 3: 'camera', 8: 'reset', 9: 'pause', 2: 'paint' };
+/** standard-mapping gamepad buttons: A hops, B boosts (held, read in poll) */
+const PAD_PRESS: Record<number, Action> = { 0: 'hop', 3: 'camera', 8: 'reset', 9: 'pause', 2: 'paint' };
 
-export interface DriveInput extends CarInputs { lookBack: boolean; }
+export interface DriveInput extends CarInputs {
+  lookBack: boolean;
+  /** rear jets, held */
+  boost: boolean;
+  /** the hop button was pressed since the last poll */
+  hop: boolean;
+  /** gamepad left stick forward/back for pitch in the air (0 on a keyboard) */
+  pitch: number;
+}
 
 class InputManager {
   private down = new Set<string>();
@@ -72,18 +80,22 @@ class InputManager {
     this.steer += Math.max(-rate * dt, Math.min(rate * dt, target - this.steer));
     this.throttle += Math.max(-8 * dt, Math.min(6 * dt, (this.held(KEYS.throttle) ? 1 : 0) - this.throttle));
     this.brake += Math.max(-12 * dt, Math.min(20 * dt, (this.held(KEYS.brake) ? 1 : 0) - this.brake));
-    let steer = this.steer, throttle = this.throttle, brake = this.brake;
-    let handbrake = this.held(KEYS.handbrake), lookBack = this.held(KEYS.lookBack);
+    let steer = this.steer, throttle = this.throttle, brake = this.brake, pitch = 0;
+    let handbrake = this.held(KEYS.handbrake), lookBack = this.held(KEYS.lookBack), boost = this.held(KEYS.boost);
     if (gp) {
       const ax = gp.axes[0] ?? 0;
       const dz = Math.abs(ax) < 0.08 ? 0 : (ax - Math.sign(ax) * 0.08) / 0.92;
       if (Math.abs(dz) > Math.abs(steer)) steer = Math.sign(dz) * Math.abs(dz) ** 1.4;
-      throttle = Math.max(throttle, gp.buttons[7]?.value ?? 0, gp.buttons[0]?.pressed ? 1 : 0);
-      brake = Math.max(brake, gp.buttons[6]?.value ?? 0, gp.buttons[1]?.pressed ? 1 : 0);
+      throttle = Math.max(throttle, gp.buttons[7]?.value ?? 0);
+      brake = Math.max(brake, gp.buttons[6]?.value ?? 0);
+      boost ||= !!gp.buttons[1]?.pressed;
+      // stick forward (negative) is nose down
+      const ay = gp.axes[1] ?? 0;
+      pitch = Math.abs(ay) < 0.15 ? 0 : -ay;
       handbrake ||= !!gp.buttons[5]?.pressed;
       lookBack ||= !!gp.buttons[4]?.pressed;
     }
-    return { steer: Math.max(-1, Math.min(1, steer)), throttle, brake, handbrake, lookBack };
+    return { steer: Math.max(-1, Math.min(1, steer)), throttle, brake, handbrake, lookBack, boost, hop: this.consume('hop'), pitch };
   }
 }
 
