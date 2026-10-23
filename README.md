@@ -41,7 +41,7 @@ A fictional electric sports coupe, inspired by modern EVs (no real brand names, 
 - **Powertrain:** dual motor, 42/58 front/rear, 560 kW, instant torque up to the grip limit, no gears. About 2.5 s to 100 km/h and 265 km/h flat out. Lifting off the throttle regenerates gently (the power gauge turns green).
 - **Chassis:** 1,850 kg, low centre of mass, anti-roll bars, aero drag and downforce. Grass has less grip and much more drag.
 - **Driving help** (from g001, default Easy) catches slides: it limits steering to what the tyres can hold and counter-steers when the rear steps out, and the physics damps excess yaw. It never steers you towards the line or brakes for you. Easy and Medium also keep traction control and ABS on; Off is fully raw.
-- **Visuals:** a procedural body with a dark glass roof, LED light blades, a full-width rear light bar, 20" wheels, body roll and pitch, skid marks, and six paint colours.
+- **Visuals:** a procedural body shaped like a modern electric roadster (low nose, peaked front fenders, teardrop glass cabin, wide rear haunches, ducktail), with slim LED headlights, a full-width tail light, intakes, splitter and diffuser projected onto the surface, 20" wheels, body roll and pitch, skid marks, and six paint colours. No real brand names or logos.
 
 ## The circuit
 
@@ -59,7 +59,7 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Grass and kerbs | `src/sim/surface.ts` |
 | Autopilot (tests and demo) | `src/sim/autopilot.ts` |
 | Renderer, presets, lighting, surfaces | `src/render/renderer.ts`, `graphics.ts`, `environment.ts`, `surfaces.ts` |
-| Scenery, car model, skid marks, cameras | `src/render/trackScene.ts`, `carModel.ts`, `skids.ts`, `cameras.ts` |
+| Scenery, car body and model, skid marks, cameras | `src/render/trackScene.ts`, `carBody.ts`, `carModel.ts`, `skids.ts`, `cameras.ts` |
 | Input, audio, crash recovery | `src/core/` |
 | HUD and overlays | `src/ui/hud.ts` |
 | Game loop (120 Hz physics, interpolated rendering), laps | `src/game.ts` |

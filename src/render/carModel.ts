@@ -1,9 +1,10 @@
-// Procedural electric sports car: a lofted body with a dark glass greenhouse, cut wheel arches,
-// LED light bars and 20" two-tone wheels. Built in a ground frame (y = 0 is the road, +z forward)
-// and then shifted so the group's origin is the physics body's centre of mass.
+// Procedural electric roadster: the body shell from carBody.ts, details projected onto it, and
+// 20" two-tone wheels. Built in a ground frame (y = 0 is the road, +z forward) and then shifted
+// so the group's origin is the physics body's centre of mass.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CAR, type Car } from '../sim/car';
+import { ARCH_R, R, WHEEL_X, WHEEL_Z, Projector, bodyGeometry, fenderAt, line } from './carBody';
 
 export const PAINTS = [
   { name: 'Ultra Red', color: 0x9e0a12, metalness: 0.5, roughness: 0.28 },
@@ -14,114 +15,16 @@ export const PAINTS = [
   { name: 'Solid Black', color: 0x0b0b0d, metalness: 0.3, roughness: 0.2 },
 ];
 
-/** smooth curve through (z, value) keys, z descending from nose to tail */
-function profile(keys: [number, number][], linear = false) {
-  return (z: number) => {
-    if (z >= keys[0][0]) return keys[0][1];
-    for (let k = 0; k < keys.length - 1; k++) {
-      const [z0, v0] = keys[k], [z1, v1] = keys[k + 1];
-      if (z <= z0 && z >= z1 && linear) return v0 + (v1 - v0) * (z0 - z) / (z0 - z1);
-      if (z <= z0 && z >= z1) {
-        // Catmull-Rom between keys k and k+1 for smooth slopes
-        const vm = keys[Math.max(0, k - 1)][1], vp = keys[Math.min(keys.length - 1, k + 2)][1];
-        const zm = keys[Math.max(0, k - 1)][0], zp = keys[Math.min(keys.length - 1, k + 2)][0];
-        const t = (z0 - z) / (z0 - z1);
-        const m0 = k === 0 ? (v1 - v0) : (v1 - vm) / ((zm - z1) / (z0 - z1));
-        const m1 = k + 2 >= keys.length ? (v1 - v0) : (vp - v0) / ((z0 - zp) / (z0 - z1));
-        const t2 = t * t, t3 = t2 * t;
-        return (2 * t3 - 3 * t2 + 1) * v0 + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * v1 + (t3 - t2) * m1;
-      }
-    }
-    return keys[keys.length - 1][1];
-  };
-}
-
-const HALF_L = 2.36;
-const top = profile([[2.36, 0.48], [2.28, 0.59], [2.05, 0.7], [1.6, 0.82], [1.12, 0.89], [0.65, 1.12], [0.15, 1.33], [-0.45, 1.37], [-1.0, 1.27], [-1.55, 1.08], [-2.02, 0.99], [-2.26, 0.97], [-2.36, 0.78]]);
-const bottom = profile([[2.36, 0.4], [2.24, 0.26], [1.95, 0.19], [0, 0.17], [-1.95, 0.19], [-2.22, 0.28], [-2.36, 0.46]]);
-const halfW = profile([[2.36, 0.5], [2.27, 0.8], [2.0, 0.92], [1.45, 0.975], [0.3, 0.96], [-0.9, 0.975], [-1.5, 0.99], [-2.05, 0.93], [-2.28, 0.8], [-2.36, 0.56]]);
-/** window line: the dark glass greenhouse starts here */
-const belt = profile([[2.36, 9], [1.13, 9], [1.12, 0.9], [0.6, 0.93], [-1.0, 0.95], [-1.7, 0.98], [-1.86, 0.99], [-1.87, 9]], true);
-
-const WHEEL_Z = CAR.wheelbase / 2, WHEEL_X = CAR.track / 2, R = CAR.wheelRadius;
-const ARCH_R = R + 0.07;
-
-function archY(z: number) {
-  let y = -1;
-  for (const wz of [WHEEL_Z, -WHEEL_Z]) {
-    const dz = z - wz;
-    if (Math.abs(dz) < ARCH_R) y = Math.max(y, R + 0.02 + Math.sqrt(ARCH_R * ARCH_R - dz * dz));
-  }
-  return y;
-}
-
-/** the body shell in two groups, paint and glass, split exactly on the window line */
-function bodyGeometry() {
-  // each section: an upper arc (glass, NU segments) and a lower arc (paint, NL segments) that
-  // meet at the window line, with the meeting points duplicated so the edge stays crisp
-  const NZ = 220, NU = 36, NL = 84, NA = NU + NL + 2;
-  const pos: number[] = [];
-  for (let i = 0; i <= NZ; i++) {
-    // denser sections at the ends, where the curvature is
-    const u = i / NZ;
-    const z = HALF_L * (0.55 * Math.cos(u * Math.PI) + 0.45 * (1 - 2 * u));
-    // the first and last sections collapse to a point, closing the nose and tail
-    const cap = i === 0 || i === NZ ? 0.02 : 1;
-    const yT0 = top(z), yB0 = bottom(z), w = halfW(z) * cap, yBelt = belt(z);
-    const ym = (yT0 + yB0) / 2, yT = ym + (yT0 - ym) * cap, yB = ym - (ym - yB0) * cap, hh = (yT - yB) / 2;
-    const arch = archY(z);
-    // angle where the section crosses the window line (the top centre when there's no glass)
-    const aBelt = yBelt >= yT - 0.01 ? Math.PI / 2 : Math.asin(Math.min(1, Math.max(0, (yBelt - ym) / hh)) ** (1 / 0.42));
-    const point = (a: number, lower: boolean) => {
-      const c = Math.cos(a), sn = Math.sin(a);
-      const e = sn > 0 ? 0.32 : 0.22; // flatter underneath, rounder on top
-      let x = w * Math.sign(c) * Math.abs(c) ** e;
-      let y = ym + hh * Math.sign(sn) * Math.abs(sn) ** (sn > 0 ? 0.42 : 0.2);
-      // tumblehome: the greenhouse leans in above the window line
-      if (!lower && y > yBelt) x *= 1 - 0.3 * ((y - yBelt) / Math.max(0.05, yT - yBelt)) ** 1.3;
-      // the shoulder: slightly fuller just below the window line
-      else x *= 1 + 0.015 * Math.max(0, 1 - Math.abs(y - (yBelt - 0.12)) / 0.2);
-      // wheel arches: lift the outer part of the section clear of the tyre
-      if (lower && arch > 0 && Math.abs(x) > WHEEL_X - 0.2 && y < arch) y = arch;
-      pos.push(x, y, z);
-    };
-    for (let j = 0; j <= NU; j++) point(aBelt + (Math.PI - 2 * aBelt) * (j / NU), false);
-    for (let j = 0; j <= NL; j++) point(Math.PI - aBelt + (Math.PI + 2 * aBelt) * (j / NL), true);
-  }
-  const glass: number[] = [], paint: number[] = [];
-  for (let i = 0; i < NZ; i++) for (let j = 0; j < NA - 1; j++) {
-    if (j === NU) continue; // the seam between glass and paint
-    const a = i * NA + j, b = a + 1, c = a + NA, d = c + 1;
-    (j < NU ? glass : paint).push(a, c, b, b, c, d);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex([...paint, ...glass]);
-  geo.addGroup(0, paint.length, 0);
-  geo.addGroup(paint.length, glass.length, 1);
-  geo.computeVertexNormals();
-  return geo;
-}
-
 /** dark wheel tubs inside the arches */
 function archLiners() {
   const parts: THREE.BufferGeometry[] = [];
   for (const z of [WHEEL_Z, -WHEEL_Z]) for (const side of [-1, 1]) {
-    const g = new THREE.CylinderGeometry(ARCH_R + 0.01, ARCH_R + 0.01, 0.42, 28, 1, true, -Math.PI / 2, Math.PI);
+    const g = new THREE.CylinderGeometry(ARCH_R - 0.02, ARCH_R - 0.02, 0.26, 28, 1, true, -Math.PI / 2, Math.PI);
     g.rotateZ(Math.PI / 2).rotateX(-Math.PI / 2);
-    g.translate(side * (WHEEL_X - 0.02), R + 0.02, z);
+    g.translate(side * (WHEEL_X - 0.02), R + 0.01, z);
     parts.push(g.toNonIndexed());
   }
   return mergeGeometries(parts)!;
-}
-
-/** outer surface x at a given height and z (for placing lights and mirrors on the body) */
-function surfaceX(z: number, y: number) {
-  const yT = top(z), yB = bottom(z), w = halfW(z);
-  const s = Math.max(-1, Math.min(1, ((y - (yT + yB) / 2) / ((yT - yB) / 2))));
-  const sn = Math.sign(s) * Math.abs(s) ** (1 / (s > 0 ? 0.42 : 0.2));
-  const c = Math.sqrt(Math.max(0, 1 - sn * sn));
-  return w * c ** (s > 0 ? 0.32 : 0.22);
 }
 
 function wheelGeometries() {
@@ -164,6 +67,18 @@ function wheelGeometries() {
   return { tyre, rim, disc, caliper };
 }
 
+/** number plate: no country, no brand, just the game's tag */
+function plateMaterial() {
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
+  const c = cv.getContext('2d')!;
+  c.fillStyle = '#f2f2ee'; c.fillRect(0, 0, 256, 64);
+  c.strokeStyle = '#222'; c.lineWidth = 4; c.strokeRect(3, 3, 250, 58);
+  c.fillStyle = '#16181c'; c.font = '700 40px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('EV · 002', 128, 34);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 });
+}
+
 function shadowTexture() {
   const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
   const c = cv.getContext('2d')!;
@@ -179,8 +94,8 @@ export class CarModel {
   private shell = new THREE.Group();
   private wheels: { pivot: THREE.Group; spin: THREE.Group; left: boolean; front: boolean }[] = [];
   readonly paint: THREE.MeshPhysicalMaterial;
-  private brakeLight: THREE.MeshStandardMaterial;
-  private headLight: THREE.MeshStandardMaterial;
+  private brakeLight!: THREE.MeshStandardMaterial;
+  private headLight!: THREE.MeshStandardMaterial;
   private paintIndex = 0;
   private roll = 0; private pitch = 0;
 
@@ -195,47 +110,16 @@ export class CarModel {
     this.shell.position.y = -CAR.comHeight;
     this.root.add(this.shell);
     const body = new THREE.Mesh(bodyGeometry(), [this.paint, glass]);
+    const under = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 3.9), trim);
+    under.position.set(0, 0.17, 0); this.shell.add(under);
     body.castShadow = true; body.receiveShadow = true;
     this.shell.add(body);
     const liners = new THREE.Mesh(archLiners(), new THREE.MeshStandardMaterial({ color: 0x0a0a0b, roughness: 0.9, side: THREE.DoubleSide }));
     this.shell.add(liners);
 
-    // underbody, front intake, rear diffuser
-    const under = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 4.1), trim);
-    under.position.set(0, 0.22, 0); this.shell.add(under);
-    const intake = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.1, 0.12), satin);
-    intake.position.set(0, 0.32, 2.27); intake.rotation.x = -0.25; this.shell.add(intake);
-    const diffuser = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.12, 0.25), satin);
-    diffuser.position.set(0, 0.3, -2.25); diffuser.rotation.x = 0.35; this.shell.add(diffuser);
-
-    // lights: slim LED headlight blades and a full-width rear light bar
     this.headLight = new THREE.MeshStandardMaterial({ color: 0xeaf4ff, emissive: 0xeaf6ff, emissiveIntensity: 1.6, roughness: 0.2 });
     this.brakeLight = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1020, emissiveIntensity: 1.2, roughness: 0.3 });
-    for (const side of [-1, 1]) {
-      // slim LED blade tucked into each front corner, following the curve of the body
-      const z = 2.1, y = 0.64;
-      const blade = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 8).scale(0.2, 0.022, 0.05), this.headLight);
-      blade.position.set(side * (surfaceX(z, y) - 0.14), y, z + 0.05);
-      blade.rotation.set(0, side * 0.55, side * 0.06);
-      this.shell.add(blade);
-      // mirrors on short stalks
-      const mz = 0.98, my = 0.98;
-      const mx = surfaceX(mz, 0.9) + 0.06;
-      const mirror = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 10).scale(0.7, 0.55, 1.25), this.paint);
-      mirror.position.set(side * (mx + 0.06), my, mz - 0.05); mirror.castShadow = true;
-      this.shell.add(mirror);
-      const glassM = new THREE.Mesh(new THREE.PlaneGeometry(0.11, 0.08), glass);
-      glassM.position.set(side * (mx + 0.06), my, mz - 0.17); glassM.rotation.y = Math.PI;
-      this.shell.add(glassM);
-      const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 0.06), trim);
-      stalk.position.set(side * mx, my - 0.03, mz); this.shell.add(stalk);
-    }
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.04, 0.04), this.brakeLight);
-    bar.position.set(0, 0.9, -2.31); this.shell.add(bar);
-    for (const side of [-1, 1]) {
-      const wrap = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.04), this.brakeLight);
-      wrap.position.set(side * 0.82, 0.9, -2.22); wrap.rotation.y = side * 0.75; this.shell.add(wrap);
-    }
+    this.addDetails(body, glass, trim, satin);
 
     // wheels
     const wg = wheelGeometries();
@@ -265,6 +149,53 @@ export class CarModel {
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 5.2), new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, opacity: 0.85 }));
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = -CAR.comHeight + 0.045; shadow.renderOrder = 1;
     this.root.add(shadow);
+  }
+
+  /** everything that sits on the paint, projected onto the body so it follows its curves */
+  private addDetails(body: THREE.Mesh, glass: THREE.Material, trim: THREE.Material, satin: THREE.Material) {
+    const pr = new Projector(body);
+    const add = (geos: THREE.BufferGeometry[], m: THREE.Material, shadow = false) => geos.forEach(g => {
+      const mesh = new THREE.Mesh(g, m); mesh.castShadow = shadow; this.shell.add(mesh);
+    });
+    const front = new THREE.Vector3(0, -0.1, -1), rear = new THREE.Vector3(0, 0, 1), side = new THREE.Vector3(-1, 0, 0);
+    const F = 3.2, B = -3.2, S = 2.2;
+    const gloss = new THREE.MeshPhysicalMaterial({ color: 0x050506, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05 });
+    const lens = new THREE.MeshPhysicalMaterial({ color: 0x0b0d10, roughness: 0.05, metalness: 0.4, clearcoat: 1 });
+
+    // slim swept headlights at the top of each front corner, with an LED line along the top
+    add(pr.strip(line([0.4, 0.575, F], [0.86, 0.655, F], 28, [0, 0.008, 0]), line([0.44, 0.54, F], [0.875, 0.615, F], 28), front, 0.004), lens);
+    add(pr.strip(line([0.41, 0.571, F], [0.86, 0.65, F], 28, [0, 0.008, 0]), line([0.42, 0.562, F], [0.862, 0.64, F], 28, [0, 0.008, 0]), front, 0.008), this.headLight);
+    // lower intake, corner vents and a thin splitter
+    // (the projection slopes down 0.1 m per metre, so these land about 0.1 m below their origins)
+    add(pr.strip(line([-0.5, 0.45, F], [0.5, 0.45, F], 40, [0, -0.02, 0]), line([-0.44, 0.355, F], [0.44, 0.355, F], 40), front, 0.004, false), gloss);
+    add(pr.strip(line([0.62, 0.47, F], [0.84, 0.5, F], 16), line([0.64, 0.38, F], [0.84, 0.4, F], 16), front, 0.004), gloss);
+    add(pr.strip(line([-0.86, 0.31, F], [0.86, 0.31, F], 50), line([-0.86, 0.285, F], [0.86, 0.285, F], 50), front, 0.012, false), trim);
+
+    // full-width tail light, number plate and diffuser
+    add(pr.strip(line([-0.99, 0.875, B], [0.99, 0.875, B], 60), line([-0.99, 0.855, B], [0.99, 0.855, B], 60), rear, 0.004, false), this.brakeLight);
+    add(pr.strip(line([0.25, 0.68, B], [-0.25, 0.68, B], 6), line([0.25, 0.57, B], [-0.25, 0.57, B], 6), rear, 0.004, false), plateMaterial());
+    add(pr.strip(line([-0.82, 0.5, B], [0.82, 0.5, B], 40), line([-0.82, 0.3, B], [0.82, 0.3, B], 40), rear, 0.005, false), gloss);
+
+    // side: door shut lines, a gloss black sill and a fine trim line along the window base
+    for (const z of [0.8, -0.95]) {
+      const top = fenderAt(z) - 0.015;
+      add(pr.strip(line([S, top, z + 0.003], [S, 0.27, z + 0.003], 20), line([S, top, z - 0.003], [S, 0.27, z - 0.003], 20), side, 0.002), trim);
+    }
+    add(pr.strip(line([S, 0.245, 1.0], [S, 0.245, -1.02], 40), line([S, 0.15, 1.0], [S, 0.15, -1.02], 40), side, 0.004), gloss);
+    const beltLine = (dy: number) => { const pts = line([S, 0, 0.7], [S, 0, -1.62], 50); pts.forEach(p => { p.y = fenderAt(p.z) + dy; }); return pts; };
+    add(pr.strip(beltLine(0.052), beltLine(0.04), side, 0.003), satin);
+
+    // mirrors: body-coloured teardrops on short black arms at the front of the door
+    for (const sgn of [-1, 1]) {
+      const z = 0.6, y = fenderAt(z) + 0.1;
+      const mirror = new THREE.Mesh(new THREE.SphereGeometry(0.1, 20, 12).scale(0.65, 0.5, 1.3), this.paint);
+      mirror.position.set(sgn * 1.0, y, z - 0.04); mirror.rotation.y = sgn * -0.12; mirror.castShadow = true;
+      const face = new THREE.Mesh(new THREE.CircleGeometry(0.06, 16).scale(1, 0.75, 1), glass);
+      face.position.set(sgn * 1.0, y, z - 0.165); face.rotation.y = Math.PI;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.025, 0.05), trim);
+      arm.position.set(sgn * 0.9, y - 0.04, z);
+      this.shell.add(mirror, face, arm);
+    }
   }
 
   get paintName() { return PAINTS[this.paintIndex].name; }
