@@ -10,6 +10,7 @@ import { Autopilot } from '../src/sim/autopilot';
 import { updateSurface } from '../src/sim/surface';
 import { Terrain } from '../src/sim/terrain';
 import { buildWorld, initPhysics, PHYSICS_DT } from '../src/sim/world';
+import { Jets, JETS, type JetInputs } from '../src/sim/jets';
 
 await initPhysics();
 const dt = PHYSICS_DT;
@@ -57,6 +58,59 @@ const check = (ok: boolean, msg: string) => { console.log(`${ok ? '  ok ' : 'FAI
   }
   console.log(`skidpad: ${(maxLat / 9.81).toFixed(2)} g at ${kmh(car.speed)} km/h`);
   check(maxLat / 9.81 > 0.9, 'over 0.9 g on the skidpad');
+}
+
+// ---- thrusters on a flat pad: boost, hop, air control
+{
+  const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+  world.timestep = dt;
+  world.createCollider(RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, -0.5, 0));
+  const car = new Car(world, 0, 0, -2500, 0);
+  const jets = new Jets();
+  const none = { boost: false, hop: false, airRoll: false };
+  const run = (inp: CarInputs, j: JetInputs, until: (t: number) => boolean) => {
+    let t = 0;
+    while (!until(t) && t < 60) { car.step(inp); jets.step(car, inp, j); world.step(); t += dt; }
+    return t;
+  };
+  const idle = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+  run(idle, none, t => t > 1);
+  const t100 = run({ ...idle, throttle: 1 }, { ...none, boost: true }, () => car.speed >= 100 / 3.6);
+  console.log(`boosted 0-100 km/h ${t100.toFixed(2)} s, tank ${(jets.tank * 100).toFixed(0)}%`);
+  check(t100 < 2.1, 'boost: 0-100 km/h under 2.1 s');
+  run({ ...idle, throttle: 1 }, { ...none, boost: true }, () => jets.tank <= 0);
+  const vMax = car.speed;
+  console.log(`boost until empty: ${kmh(vMax)} km/h`);
+  check(jets.tank === 0 && vMax < JETS.boostMaxSpeed + 1, 'boost drains the tank and stays under its speed cap');
+
+  // hop from rest with a full tank: height and air time
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run(idle, none, t => t > 1);
+  const y0 = car.body.translation().y;
+  let top = y0, air = 0;
+  car.step(idle); jets.step(car, idle, { ...none, hop: true }); world.step();
+  check(jets.hopped, 'hop fires when grounded');
+  run(idle, none, t => { top = Math.max(top, car.body.translation().y); if (car.airborne) air += dt; return t > 3; });
+  console.log(`hop: ${(top - y0).toFixed(2)} m high, ${air.toFixed(2)} s in the air, tank ${(jets.tank * 100).toFixed(0)}%`);
+  check(top - y0 > 1.4 && top - y0 < 3.2, 'hop height between 1.4 and 3.2 m');
+  check(air > 0.8, 'hop gives at least 0.8 s of air time');
+
+  // hop at speed holding pitch for most of the jump: a front flip, landed by the driving help
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run({ ...idle, throttle: 1 }, none, () => car.speed > 25);
+  car.step(idle); jets.step(car, idle, { ...none, hop: true }); world.step();
+  const events: string[] = [];
+  let t = 0, flipped = false;
+  while (t < 4) {
+    const inp = { ...idle, throttle: car.airborne && t < 0.95 ? 1 : 0 };
+    car.step(inp); jets.step(car, inp, none); world.step(); t += dt;
+    events.push(...jets.events);
+    if (car.axes().up.y < -0.3) flipped = true;
+    if (t > 0.3 && !car.airborne && events.length) break;
+  }
+  run(idle, none, t => t > 2);
+  console.log(`air control: ${flipped ? 'went over' : 'did not rotate'}, events ${events.join(', ') || '-'}, upright ${car.axes().up.y.toFixed(2)}`);
+  check(flipped, 'holding pitch in the air rotates the car past upside down');
 }
 
 // ---- laps of the circuit
