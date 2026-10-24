@@ -36,7 +36,7 @@ for (const host of ['g002-roadster.kovaforge.workers.dev', 'kovaforge.org/games/
     assert.equal(r.headers.get('Location'), `https://${host}/?x=1`);
     const c = r.headers.get('Set-Cookie') ?? '';
     assert.match(c, /HttpOnly/); assert.match(c, /Secure/); assert.match(c, /SameSite=Lax/); assert.match(c, /Max-Age=2592000/);
-    assert.match(c, host.includes('workers.dev') ? /Path=\/;/ : /Path=\/games\/g002\/;/);
+    assert.match(c, host.includes('workers.dev') ? /Path=\/;/ : /Path=\/games\/g002;/);
     assert.ok(!c.includes(CODE));
   });
   test(`${host}: the cookie opens the game, with noindex`, async () => {
@@ -82,4 +82,54 @@ test('party WebSocket is 404 without the cookie', async () => {
       assert.deepEqual(calls, [], host + p);
     }
   }
+});
+
+// Full flow like a browser: open the invite link, follow redirects, and send back only the
+// cookies whose Path path-matches the request (RFC 6265 5.1.4) on the same host.
+function pathMatch(reqPath: string, cookiePath: string) {
+  if (reqPath === cookiePath) return true;
+  if (!reqPath.startsWith(cookiePath)) return false;
+  return cookiePath.endsWith('/') || reqPath[cookiePath.length] === '/';
+}
+async function browse(start: string, e = env()) {
+  const jar: { host: string; path: string; pair: string }[] = [];
+  let url = start;
+  for (let hop = 0; hop < 5; hop++) {
+    const u = new URL(url);
+    const sent = jar.filter(c => c.host === u.hostname && pathMatch(u.pathname, c.path)).map(c => c.pair).join('; ');
+    const r = await go(url, e, sent ? { Cookie: sent } : {});
+    const sc = r.headers.get('Set-Cookie');
+    if (sc) {
+      const path = /;\s*Path=([^;]*)/i.exec(sc)?.[1] ?? '/';
+      jar.push({ host: u.hostname, path, pair: sc.split(';')[0] });
+    }
+    if (r.status !== 301 && r.status !== 302) return { r, url, jar };
+    url = new URL(r.headers.get('Location')!, url).toString();
+  }
+  throw new Error('too many redirects');
+}
+
+for (const start of [
+  'https://g002-roadster.kovaforge.workers.dev/', 'https://g002-roadster.kovaforge.workers.dev',
+  'https://kovaforge.org/games/g002/', 'https://kovaforge.org/games/g002',
+]) {
+  test(`full flow from ${start}?invite= opens the game`, async () => {
+    const { r, url, jar } = await browse(start + '?invite=' + CODE);
+    assert.equal(r.status, 200, url);
+    assert.ok(!url.includes(CODE));
+    assert.equal(jar.length, 1);
+    // later visits without the code still work, on both slash forms, and the ws path gets the cookie
+    for (const p of ['', '/', '/ws']) {
+      const h = new URL(url).hostname, base = h.endsWith('.workers.dev') ? '' : '/games/g002';
+      assert.ok(pathMatch(base + p || '/', jar[0].path), base + p);
+    }
+    const again = await browse(start);
+    assert.equal(again.r.status, 404); // a fresh browser with no cookie is still shut out
+  });
+}
+
+test('kovaforge.org cookie does not leak to a sibling path like /games/g002x', () => {
+  assert.equal(pathMatch('/games/g002x/', '/games/g002'), false);
+  assert.equal(pathMatch('/games/g002', '/games/g002'), true);
+  assert.equal(pathMatch('/games/g002/ws', '/games/g002'), true);
 });

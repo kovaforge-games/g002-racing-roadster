@@ -61,7 +61,9 @@ export function inviteGate<E extends InviteEnv, C>(game: string, base: string, i
       if (!(await same(offered, secret))) return noindex(notFound());
       url.searchParams.delete('invite');
       // workers.dev serves the game at its root; kovaforge.org only under the game's path
-      const path = url.hostname.endsWith('.workers.dev') ? '/' : base;
+      // no trailing slash: RFC 6265 path-match sends it to /games/gNNN, /games/gNNN/... and the ws,
+      // but not to /games/gNNNx, so the no-slash address works before its slash redirect
+      const path = url.hostname.endsWith('.workers.dev') ? '/' : base.replace(/\/+$/, '');
       return new Response(null, {
         status: 302,
         headers: {
