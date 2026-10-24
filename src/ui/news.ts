@@ -8,6 +8,8 @@ export const NEWS: { date: string; items: string[] }[] = [
     items: [
       'Steer in the air: while you jump or hover, steering turns the car and the way it is flying, even with an empty tank.',
       'Faster loading, with tips and this list while the game starts.',
+      'Fun Mode: red ramps with neon edges, rings of fire and item boxes.',
+      'The Garage: paint, rim colours, liveries, wings and tyres for your car.',
       'Party QR codes work again: scan one to join the party.',
       'Crash damage, and a flying tow Roadster that carries a crashed car back to the track.',
       'A sharper picture, no more freezing when the time of day changes, and the Graphics setting works.',
