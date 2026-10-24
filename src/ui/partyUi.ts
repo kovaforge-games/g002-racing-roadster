@@ -1,7 +1,7 @@
 // Party screens: Create party / Join party on the title screen, the lobby with the QR code and the
 // 6-digit code, and the results after each race.
 import QRCode from 'qrcode';
-import { PartyClient, formatCode, joinUrl, savedName, saveName, type LobbyState, type RaceResult } from '../net/party';
+import { PartyClient, formatCode, joinUrl, partyPass, savedName, saveName, type LobbyState, type RaceResult } from '../net/party';
 import { PAINTS } from '../render/carModel';
 import { formatTime } from './hud';
 import { h } from './dom';
@@ -30,6 +30,8 @@ export class PartyUi {
   private lastResults: RaceResult[] | null = null;
   private status = '';
   private qrFor = '';
+  private passFor = '';
+  private pass: string | undefined;
   private qr = h('canvas', { class: 'qr', width: 240, height: 240 });
   private racing = false;
   private lastCode = '';
@@ -162,7 +164,16 @@ export class PartyUi {
     const key = JSON.stringify([st, this.lastResults, this.status]);
     if (this.open && key === this.shown) return;
     const host = st.hostId === pc.id;
-    const url = joinUrl(st.code);
+    if (this.passFor !== st.code) {
+      // fetch the pass once per party, then draw the QR code again with it
+      this.passFor = st.code; this.pass = undefined;
+      partyPass(st.code).then(p => {
+        if (!p || this.passFor !== st.code) return;
+        this.pass = p;
+        if (!this.racing && this.pc?.lobby) { this.shown = ''; this.lobby(this.pc.lobby); }
+      });
+    }
+    const url = joinUrl(st.code, this.pass);
     if (this.qrFor !== url) {
       this.qrFor = url;
       QRCode.toCanvas(this.qr, url, { width: 240, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#0b0f14', light: '#ffffff' } }).catch(() => {});

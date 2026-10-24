@@ -133,3 +133,92 @@ test('kovaforge.org cookie does not leak to a sibling path like /games/g002x', (
   assert.equal(pathMatch('/games/g002', '/games/g002'), true);
   assert.equal(pathMatch('/games/g002/ws', '/games/g002'), true);
 });
+
+// Party passes: the QR code on an invited player's lobby lets a friend's phone in for that party
+async function passFor(party: string, host = 'kovaforge.org/games/g002') {
+  // the game asks at its base path on both hosts (import.meta.env.BASE_URL)
+  const r = await go(`https://${host.replace('/games/g002', '')}/games/g002/party-pass?code=${party}`, env(), { Cookie: await cookieFor(host) });
+  assert.equal(r.status, 200);
+  return (await r.json()).pass as string;
+}
+
+test('an invited player gets a short pass for their party', async () => {
+  const p = await passFor('123456');
+  assert.match(p, /^[0-9a-z]+\.[A-Za-z0-9_-]{22}$/);
+  assert.ok(!p.includes(CODE));
+});
+
+test('party-pass is a 404 without the invite', async () => {
+  const r = await go('https://kovaforge.org/games/g002/party-pass?code=123456');
+  assert.equal(r.status, 404);
+});
+
+for (const start of ['https://g002-roadster.kovaforge.workers.dev/', 'https://kovaforge.org/games/g002/']) {
+  test(`scanning the QR code from ${start} opens the game and keeps the party code`, async () => {
+    const host = start.replace('https://', '').replace(/\/$/, '');
+    const pass = await passFor('482913', host);
+    const { r, url, jar } = await browse(`${start}?code=482913&pass=${encodeURIComponent(pass)}`);
+    assert.equal(r.status, 200, url);
+    assert.equal(new URL(url).search, '?code=482913');
+    assert.equal(jar.length, 1);
+    assert.match(jar[0].pair, /^kf_g002_guest=/);
+    // the guest cookie opens the party WebSocket too
+    const ws = await go(start + 'ws?code=482913', env(), { Upgrade: 'websocket', Cookie: jar[0].pair });
+    assert.notEqual(ws.status, 404);
+    assert.deepEqual(calls, ['DO']);
+  });
+}
+
+test('the guest cookie lasts as long as the pass', async () => {
+  const pass = await passFor('482913');
+  const r = await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`);
+  const age = Number(/Max-Age=(\d+)/.exec(r.headers.get('Set-Cookie') ?? '')?.[1]);
+  assert.ok(age > 12 * 3600 - 60 && age <= 12 * 3600, String(age));
+});
+
+test('a pass only works for its own party, and forged passes are a 404', async () => {
+  const pass = await passFor('482913');
+  for (const q of [`code=111111&pass=${pass}`, `pass=${pass}`, `code=482913&pass=${pass.slice(0, -1)}A`, 'code=482913&pass=zzzzzz.AAAAAAAAAAAAAAAAAAAAAA', 'code=482913&pass=']) {
+    const r = await go(`https://kovaforge.org/games/g002/?${q}`);
+    assert.equal(r.status, 404, q);
+    assert.equal(r.headers.get('Set-Cookie'), null, q);
+  }
+});
+
+test('an expired pass and an expired guest cookie are a 404', async () => {
+  const pass = await passFor('482913');
+  const guest = (await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`)).headers.get('Set-Cookie')!.split(';')[0];
+  const now = Date.now;
+  Date.now = () => now() + 13 * 3600 * 1000;
+  try {
+    assert.equal((await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`)).status, 404);
+    assert.equal((await go('https://kovaforge.org/games/g002/', env(), { Cookie: guest })).status, 404);
+  } finally { Date.now = now; }
+});
+
+test("a guest's passes never outlast their own, and an invited player keeps their own cookie", async () => {
+  const pass = await passFor('482913');
+  const now = Date.now;
+  const guest = (await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`)).headers.get('Set-Cookie')!.split(';')[0];
+  Date.now = () => now() + 10 * 3600 * 1000; // ten hours in, the guest makes their own party
+  try {
+    const r = await go('https://kovaforge.org/games/g002/party-pass?code=555555', env(), { Cookie: guest });
+    assert.equal(r.status, 200);
+    const next = (await r.json()).pass as string;
+    assert.equal(next.split('.')[0], pass.split('.')[0]); // runs out with the first pass, not 12 hours later
+    const friend = await go(`https://kovaforge.org/games/g002/?code=555555&pass=${next}`);
+    const age = Number(/Max-Age=(\d+)/.exec(friend.headers.get('Set-Cookie') ?? '')?.[1]);
+    assert.ok(age > 2 * 3600 - 60 && age <= 2 * 3600, String(age));
+  } finally { Date.now = now; }
+  const r = await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`, env(), { Cookie: await cookieFor('kovaforge.org/games/g002') });
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.get('Set-Cookie'), null);
+  assert.equal(r.headers.get('Location'), 'https://kovaforge.org/games/g002/?code=482913');
+});
+
+test('rotating INVITE_CODE invalidates passes and guest cookies', async () => {
+  const pass = await passFor('482913');
+  const guest = (await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`)).headers.get('Set-Cookie')!.split(';')[0];
+  assert.equal((await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`, env('rotated-code-456'))).status, 404);
+  assert.equal((await go('https://kovaforge.org/games/g002/', env('rotated-code-456'), { Cookie: guest })).status, 404);
+});

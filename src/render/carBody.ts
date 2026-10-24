@@ -10,6 +10,7 @@
 // seams) are projected onto the finished surface with ray casts, so they always sit on the body
 // however the shape is tuned.
 import * as THREE from 'three';
+import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 import { CAR } from '../sim/car';
 
 /** smooth curve through (z, value) keys, z descending from nose to tail */
@@ -230,7 +231,19 @@ export const crownAt = (z: number) => crown(z);
  */
 export class Projector {
   private ray = new THREE.Raycaster();
-  constructor(private body: THREE.Mesh) { body.updateMatrixWorld(true); }
+  private body: THREE.Mesh;
+  constructor(body: THREE.Mesh) {
+    body.updateMatrixWorld(true);
+    // casting against every triangle took seconds of the loading screen: a copy of the mesh with a
+    // bounding volume tree finds the same nearest hit far faster, and leaves the car's own mesh alone
+    const geo = body.geometry.clone();
+    geo.boundsTree = new MeshBVH(geo);
+    this.body = new THREE.Mesh(geo, body.material);
+    this.body.matrixWorld.copy(body.matrixWorld);
+    this.body.matrixWorldAutoUpdate = false;
+    this.body.raycast = acceleratedRaycast;
+    this.ray.firstHitOnly = true;
+  }
 
   private hit(origin: THREE.Vector3, dir: THREE.Vector3, offset: number) {
     this.ray.set(origin, dir);
