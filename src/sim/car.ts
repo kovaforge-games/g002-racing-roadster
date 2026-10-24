@@ -326,8 +326,10 @@ export class Car {
       // tyre temperature: rolling under load, sliding sideways, braking and driving heat it;
       // the air cools it, faster at speed
       const loadN = w.contact ? load[i] / (S.mass * G / 4) : 0;
-      // (the more a tyre is loaded the harder it works, so the outside tyres in a corner heat up most)
-      const heat = loadN ** 2 * (TYRE_HEAT.roll * Math.abs(vF) + TYRE_HEAT.slide * Math.min(lat, 4)) + TYRE_HEAT.force * this.tyreForce[i] / (S.mass * G / 4) * Math.min(1, Math.abs(vF) / 10)
+      // (the more a tyre is loaded the harder it works, so the outside tyres in a corner heat up
+      // most; past the car's own weight, downforce adds less)
+      const work = Math.min(loadN, 1) ** 2 * Math.max(1, loadN) ** 0.5;
+      const heat = work * (TYRE_HEAT.roll * Math.abs(vF) + TYRE_HEAT.slide * Math.min(lat, 4)) + TYRE_HEAT.force * this.tyreForce[i] / (S.mass * G / 4) * Math.min(1, Math.abs(vF) / 10)
         + (w.slip > 0.5 ? TYRE_HEAT.skid * w.slip : 0);
       // (a very hot tyre sheds heat much faster, so even a scrubbing, sliding tyre levels off)
       const hot = 1 + Math.max(0, this.tyreTemp[i] - 90) / 12;

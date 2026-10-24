@@ -17,15 +17,17 @@ export function racingLine(track: Track) {
 }
 
 /** the fastest speed (m/s) at each sample for a driver using `grip` g in corners and braking at
- *  `brake` m/s² before them */
-export function speedProfile(track: Track, grip = 1.3, brake = 10, vCap = 92) {
+ *  `brake` m/s² before them; `aero` is the extra cornering grip from downforce, in m/s² per (m/s)² */
+export function speedProfile(track: Track, grip = 1.3, brake = 10, vCap = 92, aero = 0) {
   const n = track.n, step = track.total / n;
   const v = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     // average over ±10 m: the sampled curvature is noisy, and the line cuts across the corner
     let c = 0;
     for (let k = -5; k <= 5; k++) c += Math.abs(track.curv[track.wrap(i + k)]) / 11;
-    v[i] = Math.min(vCap, Math.sqrt(grip * 9.81 / Math.max(c, 1e-4)));
+    // v² c = grip (g + aero v²): with enough downforce a corner is flat out
+    const room = Math.max(c, 1e-4) - grip * aero;
+    v[i] = room <= 1e-6 ? vCap : Math.min(vCap, Math.sqrt(grip * 9.81 / room));
   }
   // braking zones: walk backwards (twice round, so the wrap at the line is covered)
   for (let pass = 0; pass < 2; pass++) {

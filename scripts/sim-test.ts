@@ -3,7 +3,7 @@
 // non-zero if the car spins, flips or keeps hitting walls.
 //   npm run sim-test
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Car, type CarInputs } from '../src/sim/car';
+import { CAR, Car, type CarInputs } from '../src/sim/car';
 import { applyDrivingHelp, HELP_STABILITY, type DrivingHelp } from '../src/sim/assist';
 import { Track } from '../src/sim/track';
 import { Autopilot } from '../src/sim/autopilot';
@@ -13,6 +13,7 @@ import { buildWorld, initPhysics, PHYSICS_DT } from '../src/sim/world';
 import { Jets, JETS, type JetInputs } from '../src/sim/jets';
 import { Canisters } from '../src/sim/canisters';
 import { Race, RACE_LAPS, MAX_OPPONENTS, type RaceOptions } from '../src/sim/race';
+import { CLASSES, CLASS_ORDER, type ClassId } from '../src/sim/classes';
 
 await initPhysics();
 // the bots roll dice (mistakes, passing, boosting): seed them so every run of this test is the same
@@ -86,7 +87,7 @@ const check = (ok: boolean, msg: string) => { console.log(`${ok ? '  ok ' : 'FAI
   run({ ...idle, throttle: 1 }, { ...none, boost: true }, () => jets.tank <= 0);
   const vMax = car.speed;
   console.log(`boost until empty: ${kmh(vMax)} km/h`);
-  check(jets.tank === 0 && vMax < JETS.boostMaxSpeed + 1, 'boost drains the tank and stays under its speed cap');
+  check(jets.tank === 0 && vMax < CAR.topSpeed + JETS.boostMaxSpeed + 1, 'boost drains the tank and stays under its speed cap');
 
   // hop from rest with a full tank: height and air time
   car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
@@ -236,6 +237,38 @@ function runRace(opts: RaceOptions) {
   check(newbie.entrants.length === 12 && pro.allFinished && newbie.allFinished, 'full field: 12 cars, everyone finishes');
   check(pro.rivals.reduce((a, e) => a + e.resets, 0) <= 4, 'full field: at most 4 rival resets');
   check(avgBest(newbie) > avgBest(pro) + 6, 'newbie bots lap at least 6 s slower than pro bots');
+}
+
+// ---- the classes: straight-line numbers, then two laps of the bots racing in each
+{
+  const want: Record<ClassId, { t100: [number, number]; top: [number, number] }> = {
+    rental: { t100: [4, 6], top: [195, 215] }, '0x1.5': { t100: [2.3, 3], top: [250, 270] },
+    '0x2.5': { t100: [2, 2.7], top: [290, 310] }, '0x3.5': { t100: [1.8, 2.4], top: [330, 350] },
+  };
+  const laps: number[] = [];
+  for (const id of CLASS_ORDER) {
+    const spec = CLASSES[id].spec;
+    const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    world.timestep = dt;
+    world.createCollider(RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, -0.5, 0));
+    const car = new Car(world, 0, 0, -2500, 0, spec);
+    const run = (inp: CarInputs, until: (t: number) => boolean) => { let t = 0; while (!until(t) && t < 120) { car.step(inp); world.step(); t += dt; } return t; };
+    const full = { steer: 0, throttle: 1, brake: 0, handbrake: false };
+    run({ ...full, throttle: 0 }, t => t > 1);
+    const t100 = run(full, () => car.speed >= 100 / 3.6);
+    let topGear = 0;
+    run(full, t => { topGear = Math.max(topGear, car.gear); return t > 25; });
+    const top = car.speed * 3.6;
+    world.free();
+    const { race } = runRace({ opponents: 5, laps: 2, difficulty: 'expert', cls: id });
+    const best = Math.min(...race.rivals.map(e => e.bestLap ?? 99));
+    laps.push(best);
+    console.log(`${id}: 0-100 ${t100.toFixed(2)} s, top ${top.toFixed(0)} km/h${spec.gears ? `, gears up to ${topGear} of ${spec.gears}` : ''}, best bot lap ${best.toFixed(1)} s`);
+    check(t100 > want[id].t100[0] && t100 < want[id].t100[1] && top > want[id].top[0] && top < want[id].top[1], `${id}: 0-100 and top speed in range`);
+    check(spec.gears === 0 || topGear === spec.gears, `${id}: the gearbox shifts all the way up`);
+    check(race.allFinished && race.rivals.reduce((a, e) => a + e.resets, 0) <= 2, `${id}: everyone finishes, at most 2 bot resets`);
+  }
+  check(laps.every((t, k) => k === 0 || t < laps[k - 1] - 2), 'each class laps at least 2 s quicker than the one before');
 }
 
 process.exit(failed ? 1 : 0);

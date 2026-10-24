@@ -2,7 +2,8 @@
 // rival driving, air pickups and recovery. The player's own driving, lap timing and resets stay
 // in the game; the race only tracks the player's progress for the standings.
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { Car } from './car';
+import { CAR, Car, type CarSpec } from './car';
+import { CLASSES, aeroOf, type ClassId } from './classes';
 import { Jets } from './jets';
 import { DIFFICULTIES, RIVALS, RivalDriver, rivalAt, type CarView, type Difficulty } from './rival';
 import { racingLine, speedProfile } from './racingLine';
@@ -21,7 +22,7 @@ export const gridSlot = (k: number) => [-10 - 5 * k, k % 2 ? 2.8 : -2.8] as cons
 /** the player's slot (0-based): towards the back, so there is a field to race through (fifth of six) */
 export const playerSlot = (opponents: number) => Math.min(opponents, Math.round(opponents * 0.7));
 
-export interface RaceOptions { opponents?: number; laps?: number; difficulty?: Difficulty }
+export interface RaceOptions { opponents?: number; laps?: number; difficulty?: Difficulty; cls?: ClassId }
 
 export interface Entrant extends CarView {
   name: string;
@@ -59,6 +60,8 @@ export class Race {
   readonly player: Entrant;
   readonly laps: number;
   readonly difficulty: Difficulty;
+  /** the class everyone races in; null is the original road car */
+  readonly cls: ClassId | null;
   /** seconds since the lights went out */
   time = 0;
   running = false;
@@ -70,8 +73,10 @@ export class Race {
     const rivals = Math.max(1, Math.min(MAX_OPPONENTS, opts.opponents ?? 5));
     this.laps = Math.max(1, opts.laps ?? RACE_LAPS);
     this.difficulty = opts.difficulty ?? 'expert';
+    this.cls = opts.cls ?? null;
+    const spec: CarSpec = this.cls ? CLASSES[this.cls].spec : CAR;
     this.line = racingLine(track);
-    this.profile = speedProfile(track, 1.55);
+    this.profile = this.cls ? speedProfile(track, spec.grip, CLASSES[this.cls].brake, spec.topSpeed + 8, aeroOf(spec)) : speedProfile(track, 1.55);
     const blank = (name: string, car: Car, jets: Jets, driver: RivalDriver | null, paint: number): Entrant => ({
       name, car, jets, driver, paint, s: 0, lateral: 0, speed: 0, hint: -1, lap: 0, passedHalf: false, prevS: 0,
       dist: 0, pos: 0, finished: false, finishTime: null, estimated: false, lapStart: null, bestLap: null, flipT: 0, gotAir: 0, resets: 0, braking: false, washed: 0,
@@ -79,7 +84,7 @@ export class Race {
     this.player = blank('You', playerCar, playerJets, null, 0);
     for (let k = 0; k < rivals; k++) {
       const def = rivalAt(RIVALS[k], this.difficulty);
-      const car = new Car(world, 0, 0, 0, 0);
+      const car = new Car(world, 0, 0, 0, 0, spec);
       car.stability = 0.6;
       this.entrants.push(blank(def.name, car, new Jets(), new RivalDriver(def, track, this.line, this.profile), k + 1));
     }

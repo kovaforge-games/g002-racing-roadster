@@ -6,10 +6,10 @@ import type { Car, CarInputs } from './car';
 import { PHYSICS_DT } from './world';
 
 export const JETS = {
-  /** rear thrust (N): about 0.9 g on top of the motor */
-  boostForce: 16500,
-  /** boost fades out between these speeds (m/s), so it can't run away */
-  boostFadeFrom: 82, boostMaxSpeed: 95,
+  /** rear thrust: about 0.9 g on top of the motor */
+  boostAccel: 8.9,
+  /** boost fades out between these speeds (m/s) over the car's top speed, so it can't run away */
+  boostFadeFrom: 10, boostMaxSpeed: 23,
   /** tank fractions */
   boostDrain: 0.24,      // per second
   hopCost: 0.2,
@@ -79,8 +79,8 @@ export class Jets {
     this.boosting = free || (inp.boost && this.tank > 0);
     if (this.boosting) {
       const v = car.speed;
-      const fade = Math.max(0, Math.min(1, (JETS.boostMaxSpeed - v) / (JETS.boostMaxSpeed - JETS.boostFadeFrom)));
-      const f = JETS.boostForce * fade;
+      const fade = Math.max(0, Math.min(1, (car.spec.topSpeed + JETS.boostMaxSpeed - v) / (JETS.boostMaxSpeed - JETS.boostFadeFrom)));
+      const f = JETS.boostAccel * car.spec.mass * fade;
       b.addForce({ x: fwd.x * f, y: fwd.y * f, z: fwd.z * f }, true);
       if (free) this.freeBoost -= dt;
       else this.drain(JETS.boostDrain * dt);
@@ -123,7 +123,7 @@ export class Jets {
       const yawIn = inp.airRoll ? 0 : steerIn;
       const rollIn = inp.airRoll ? steerIn : 0;
       const active = this.airTime > 0.08 && this.tank > 0 && (Math.abs(pitchIn) > 0.05 || Math.abs(yawIn) > 0.05 || Math.abs(rollIn) > 0.05);
-      const I = { x: 3300, y: 3600, z: 760 };
+      const I = car.spec.inertia;
       const k = JETS.response;
       let tx = 0, ty = 0, tz = 0;
       if (active) {
@@ -136,7 +136,7 @@ export class Jets {
       } else if (assist && this.airTime > 0.25) {
         // driving help: with the sticks centred, ease the car back to wheels-down for the landing,
         // turning about up × world-up
-        const s = 7000, d = 2500;
+        const m = car.spec.inertia.x / 3300, s = 7000 * m, d = 2500 * m;
         b.addTorque({ x: -up.z * s - av.x * d, y: 0, z: up.x * s - av.z * d }, true);
       }
       if (tx || ty || tz) {
