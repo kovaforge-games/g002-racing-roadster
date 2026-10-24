@@ -14,6 +14,9 @@ import { Jets, JETS, type JetInputs } from '../src/sim/jets';
 import { Canisters } from '../src/sim/canisters';
 import { Race, RACE_LAPS, MAX_OPPONENTS, type RaceOptions } from '../src/sim/race';
 import { CLASSES, CLASS_ORDER, type ClassId } from '../src/sim/classes';
+import { newRun, scoreRound, standings, isOver } from '../src/sim/championship';
+import { LICENSES, medalFor, medalTime } from '../src/sim/licenses';
+import { referenceTime } from './license-times';
 
 await initPhysics();
 // the bots roll dice (mistakes, passing, boosting): seed them so every run of this test is the same
@@ -269,6 +272,34 @@ function runRace(opts: RaceOptions) {
     check(race.allFinished && race.rivals.reduce((a, e) => a + e.resets, 0) <= 2, `${id}: everyone finishes, at most 2 bot resets`);
   }
   check(laps.every((t, k) => k === 0 || t < laps[k - 1] - 2), 'each class laps at least 2 s quicker than the one before');
+}
+
+// ---- championship scoring
+{
+  console.log('championship scoring:');
+  const run = newRun('0x1.5', 'club');
+  const names = ['A', 'B', 'You', 'C'];
+  scoreRound(run, names.map(name => ({ name })));
+  scoreRound(run, ['B', 'A', 'C', 'You'].map(name => ({ name })));
+  const table = standings(run);
+  check(run.points.A === 43 && run.points.B === 43 && run.points.You === 27 && run.points.C === 27, 'points 25-18-15-12 add up over two rounds');
+  check(table.length === 4 && table[0].points === 43, 'the standings list everyone, most points first');
+  const tie = { ...newRun('0x1.5', 'club'), points: { X: 26, Y: 26, Z: 26 }, finishes: { X: [3, 1], Y: [2, 2], Z: [1, 10] } };
+  check(standings(tie).map(r => r.name).join('') === 'XZY', 'a tie on points goes to more wins, then more seconds');
+  scoreRound(run, names.map(name => ({ name })));
+  check(isOver(run) && run.round === 3, 'the 0x1.5 Championship is over after 3 rounds');
+}
+
+// ---- license targets: the reference driver still makes each target, so the medals stay fair
+{
+  console.log('license tests (reference driver vs the stored time):');
+  for (const lic of LICENSES) for (const test of lic.tests) {
+    const t = referenceTime(lic, test);
+    const off = t === null ? Infinity : t / test.ref - 1;
+    console.log(`  ${lic.name.padEnd(16)} ${test.name.padEnd(20)} ${t?.toFixed(2) ?? 'dnf'} s (stored ${test.ref.toFixed(2)}, gold ${medalTime(test, 'gold').toFixed(1)}, silver ${medalTime(test, 'silver').toFixed(1)})`);
+    check(Math.abs(off) < 0.03, `${lic.name} / ${test.name}: reference time within 3% of the stored one (rerun scripts/license-times.ts after a handling change)`);
+    check(t !== null && medalFor(test, t) === 'gold', `${lic.name} / ${test.name}: the reference driver gets gold`);
+  }
 }
 
 process.exit(failed ? 1 : 0);

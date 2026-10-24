@@ -8,7 +8,8 @@ import { CAMERA_ORDER } from '../render/cameras';
 import type { TimeOfDay } from '../render/environment';
 import { TouchControls } from './touch';
 import { CLASSES, CLASS_ORDER, type ClassId } from '../sim/classes';
-import { ownsCar, progress } from '../core/progress';
+import { ownsCar, progress, hasLicense } from '../core/progress';
+import { LICENSES, MEDALS, medalTime, passes } from '../sim/licenses';
 import { CHAMPIONSHIPS, CHAMP_OPPONENTS as CHAMP_FIELD, REWARD_PLACE, newRun, standings, type ChampRun } from '../sim/championship';
 
 /** what the menus need from the game */
@@ -17,6 +18,8 @@ export interface MenuGame {
   startSession(mode: SessionMode): void;
   /** race the next round of a championship */
   startChampionship(run: ChampRun): void;
+  /** drive test k of a license */
+  startLicenseTest(id: string, k: number): void;
   resume(): void;
   /** the on-screen pause button and Esc: pause or resume (in a party, open or close the menu) */
   togglePause(): void;
@@ -58,7 +61,6 @@ const MODES: { id: string; name: string; about: string }[] = [
 /** modes still being built: what the screen says about them */
 const SOON: Record<string, string> = {
   weekend: 'A full weekend at one track: a practice session, qualifying to set your grid slot, then the race.',
-  licenses: 'National B, National A and International A: five A-to-B tests each in the 0x1.5, 0x2.5 and 0x3.5 cars. Silver in every test earns the license.',
   replays: 'Every race saved so you can watch it again from any camera.',
 };
 
@@ -128,6 +130,7 @@ export class Menu {
     else if (id === 'timetrial') this.setupScreen('timetrial');
     else if (id === 'practice') this.setupScreen('practice');
     else if (id === 'championship') this.championships();
+    else if (id === 'licenses') this.licenses();
     else if (id === 'settings') this.screen(() => this.home(), this.settingsCard(() => this.home()));
     else {
       const m = MODES.find(x => x.id === id)!;
@@ -199,6 +202,45 @@ export class Menu {
       field('Difficulty', segmented(DIFFICULTY_ORDER.map(d => [d, DIFFICULTIES[d].label]), setup.difficulty, v => { setup.difficulty = v; about.textContent = DIFFICULTIES[v].about; }), about),
       ...cards,
       h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: () => this.home() }, 'Back'))));
+  }
+
+  /** the licenses: each one's five tests with your best medals; a test opens its briefing */
+  licenses() {
+    const cards = LICENSES.map(lic => {
+      const open = !lic.needs || hasLicense(lic.needs), held = hasLicense(lic.id);
+      const medals = progress.medals[lic.id] ?? [];
+      const tests = h('ol', { class: 'tests' }, ...lic.tests.map((t, k) => {
+        const m = medals[k];
+        return h('li', null, h('button', { class: 'test-btn', disabled: !open, onclick: () => this.testBriefing(lic.id, k) },
+          h('span', { class: 'test-k' }, String(k + 1)), h('span', null, t.name), h('i', { class: `medal ${m ?? 'none'}`, title: m ?? 'no medal yet' })));
+      }));
+      const passed = medals.filter(passes).length;
+      const status = held ? h('p', { class: 'held' }, '✓ License earned')
+        : !open ? h('p', { class: 'locked-note' }, `🔒 Earn the ${LICENSES.find(l => l.id === lic.needs)!.name} license first.`)
+        : h('p', { class: 'dim' }, `${passed} of ${lic.tests.length} tests at silver or better.`);
+      return h('div', { class: `champ${open ? '' : ' locked'}` },
+        h('h3', null, `${lic.name} license`),
+        h('p', null, `Five tests in the ${CLASSES[lic.cls].name}. Silver or better in all five earns the license${lic.car ? ` and the ${CLASSES[lic.car].name}` : ''}.`),
+        tests, status);
+    });
+    this.screen(() => this.home(), h('div', { class: 'card setup champs' },
+      h('h2', null, 'Licenses'),
+      h('p', { class: 'dim' }, 'Drive from gate A to gate B inside the target times. No thrusters in a test, and stay on the road!'),
+      ...cards,
+      h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: () => this.home() }, 'Back'))));
+  }
+
+  private testBriefing(id: string, k: number) {
+    const lic = LICENSES.find(l => l.id === id)!, t = lic.tests[k], best = progress.medals[id]?.[k];
+    this.screen(() => this.licenses(), h('div', { class: 'card setup' },
+      h('h2', null, `Test ${k + 1}: ${t.name}`),
+      h('div', { class: 'track-line' }, h('span', { class: 'dim' }, lic.name), h('b', null, CLASSES[lic.cls].name)),
+      h('p', null, t.tip),
+      h('div', { class: 'targets' }, ...MEDALS.map(m => h('div', { class: `target ${m}${best === m ? ' mine' : ''}` }, h('i', { class: `medal ${m}` }), h('span', null, m.toUpperCase()), h('b', null, `${medalTime(t, m).toFixed(1)} s`)))),
+      best ? h('p', { class: 'dim' }, `Your best: ${best}.`) : null,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn big', onclick: () => this.licenses() }, 'Back'),
+        h('button', { class: 'btn big primary start', autofocus: true, onclick: () => this.game.startLicenseTest(id, k) }, 'Start'))));
   }
 
   /** settings, from the home screen or the pause menu */

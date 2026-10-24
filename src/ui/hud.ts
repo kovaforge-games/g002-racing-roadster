@@ -32,6 +32,7 @@ export class Hud {
   private air: HTMLElement; private airFill: HTMLElement; private airPct: HTMLElement; private hopDot: HTMLElement; private airGain: HTMLElement;
   private gainTimer = 0;
   private standings: HTMLElement; private posEl: HTMLElement; private lapOf: HTMLElement; private rows: HTMLElement;
+  private test: HTMLElement; private testName: HTMLElement; private testTime: HTMLElement; private testBar: HTMLElement; private testMedals: HTMLElement[] = [];
   readonly results: HTMLElement;
   private wheel: HTMLElement; private wheelGear: HTMLElement; private wheelRpm: HTMLElement; private wheelKmh: HTMLElement;
   private tyres: HTMLElement[] = [];
@@ -102,6 +103,17 @@ export class Hud {
     this.posEl = el('div', 'pos', head);
     this.lapOf = el('div', 'lapof', head);
     this.rows = el('div', 'list', this.standings);
+
+    this.test = el('div', 'panel testpanel hidden', this.root);
+    this.testName = el('div', 'test-name', this.test);
+    this.testTime = el('div', 'time big', this.test, formatTime(null));
+    const medals = el('div', 'test-medals', this.test);
+    for (const m of ['gold', 'silver', 'bronze']) {
+      const r = el('div', `medal-row ${m}`, medals);
+      el('i', 'medal-dot', r); el('span', 'label', r, m.toUpperCase());
+      this.testMedals.push(el('span', 'value', r));
+    }
+    this.testBar = el('div', 'fill', el('div', 'test-bar', this.test));
 
     this.toast = el('div', 'toast', this.root);
     this.lights = el('div', 'startlights', this.root);
@@ -234,6 +246,21 @@ export class Hud {
     this.lap.textContent = r.lap === 0 ? 'START' : r.lap > r.laps ? 'FINISHED' : `LAP ${r.lap}/${r.laps}`;
     const html = r.field.map(f => `<div class="row${f.you ? ' you' : ''}"><b>${f.pos}</b><i style="background:${f.color}"></i><span>${f.name}</span><em>${f.gap}</em></div>`).join('');
     if (this.rows.innerHTML !== html) this.rows.innerHTML = html;
+  }
+
+  /** a license test: its name, the clock, the medal times (each greys out once it's gone) and
+   *  how far along from A to B; null hides the panel */
+  setTest(t: { name: string; time: number | null; medals: number[]; done: number } | null) {
+    this.test.classList.toggle('hidden', !t);
+    if (!t) return;
+    if (this.testName.textContent !== t.name) this.testName.textContent = t.name;
+    this.testTime.textContent = formatTime(t.time ?? 0);
+    t.medals.forEach((m, k) => {
+      const txt = m.toFixed(1);
+      if (this.testMedals[k].textContent !== txt) this.testMedals[k].textContent = txt;
+      this.testMedals[k].parentElement!.classList.toggle('gone', t.time !== null && t.time > m);
+    });
+    this.testBar.style.width = `${(Math.max(0, Math.min(1, t.done)) * 100).toFixed(1)}%`;
   }
 
   /** the results table after the player crosses the line (or the session is finished early) */

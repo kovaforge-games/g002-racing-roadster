@@ -316,3 +316,35 @@ body.touch-mode .air { left: 16px; right: auto; bottom: 140px; transform: scale(
 .rounds li.next { outline: 1px solid var(--accent); }
 .rounds li.done b { color: var(--accent); }
 .champ .row { justify-content: flex-start; }
+
+/* license tests: the clock and the medal times, top right */
+.testpanel { top: 16px; right: 16px; padding: 12px 16px; min-width: 210px; }
+.testpanel.hidden { display: none; }
+.testpanel .test-name { font-size: 12px; letter-spacing: 3px; color: var(--accent); font-weight: 700; text-transform: uppercase; }
+.testpanel .time.big { font-size: 34px; font-weight: 800; letter-spacing: -0.5px; margin: 2px 0 6px; }
+.test-medals { display: grid; gap: 3px; }
+.medal-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 8px; font-size: 14px; }
+.medal-row .label { color: var(--dim); letter-spacing: 2px; font-size: 11px; }
+.medal-row .value { font-weight: 700; }
+.medal-row.gone { opacity: 0.35; text-decoration: line-through; }
+.medal-dot { width: 12px; height: 12px; border-radius: 50%; }
+.gold .medal-dot, .medal.gold { background: #ffd34d; }
+.silver .medal-dot, .medal.silver { background: #d4dbe3; }
+.bronze .medal-dot, .medal.bronze { background: #d08a4e; }
+.test-bar { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.12); margin-top: 10px; overflow: hidden; }
+.test-bar .fill { height: 100%; width: 0; background: var(--accent); }
+body.in-test .hud .air, body.in-test .hud .timing, body.in-test .touch .jets { display: none; }
+
+/* licenses */
+.tests { list-style: none; margin: 8px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+.test-btn { width: 100%; display: grid; grid-template-columns: 22px 1fr 14px; align-items: center; gap: 8px; text-align: left; font: inherit; font-size: 14px; color: var(--fg);
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--edge); border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.test-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.test-btn:disabled { cursor: not-allowed; }
+.test-k { font-weight: 800; color: var(--accent); }
+.medal { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+.medal.none { border: 1px dashed var(--dim); }
+.held { color: #4be38a; font-weight: 700; }
+.targets { display: grid; gap: 6px; }
+.target { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
+.target.mine { outline: 1px solid var(--accent); }

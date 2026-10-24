@@ -22,6 +22,8 @@ import { buildModel, type BodyModel } from './render/models';
 import { OpenWheelModel } from './render/openWheel';
 import { CLASSES, type ClassId } from './sim/classes';
 import { ownsCar, giveCar, progress, saveProgress } from './core/progress';
+import { licenseById, medalFor, medalTime, passes, better, MEDALS, TestProgress } from './sim/licenses';
+import { Gates } from './render/gates';
 import { champById, scoreRound, standings, isOver, CHAMP_OPPONENTS, REWARD_PLACE, type ChampRun } from './sim/championship';
 import { ReflectionProbe } from './render/reflections';
 import { CameraRig } from './render/cameras';
@@ -115,6 +117,9 @@ export class Game implements PartyGame, MenuGame {
   /** the championship this race is a round of */
   champ: ChampRun | null = null;
   private standingsShown = false;
+  /** the license test being driven: which one, how far along, and how long off the road */
+  test: { id: string; k: number; prog: TestProgress; offT: number; over: boolean; time: number | null } | null = null;
+  private gates: Gates;
   /** the results still have cars racing, so they refresh every second */
   private resultsPending = false;
   readonly trackName = TRACK_NAME;
@@ -185,6 +190,8 @@ export class Game implements PartyGame, MenuGame {
     this.trackScene = new TrackScene(this.track, this.terrain, quality);
     this.canisters = new Canisters(this.track);
     this.canisterScene = new CanisterScene(this.canisters);
+    this.gates = new Gates(this.track);
+    this.scene.add(this.gates.group);
     this.scene.add(this.trackScene.group, this.canisterScene.group, this.skids.mesh, this.vapour.points);
     if (quality === 'high' || quality === 'ultra') this.probe = new ReflectionProbe(quality === 'ultra' ? 256 : 128, quality === 'ultra' ? 2 : 4);
     this.roadModel.onSpoiler = up => { if (this.phase === 'driving') this.hud.message(up ? 'Spoiler up' : 'Spoiler down', 1); };
@@ -299,6 +306,7 @@ export class Game implements PartyGame, MenuGame {
     this.session = mode;
     this.current = { ...s };
     this.champ = champ;
+    this.endTest();
     const tod = Math.max(0, TIMES.indexOf(s.tod));
     if (tod !== this.todIndex) { this.todIndex = tod; this.buildEnvironment(); }
     this.hud.title.classList.add('hidden');
@@ -421,7 +429,80 @@ export class Game implements PartyGame, MenuGame {
   /** the same session again from the start */
   restart() {
     if (this.party) { this.resume(); return; }
+    if (this.test) { this.startLicenseTest(this.test.id, this.test.k); return; }
     this.startSession(this.session, this.current, this.champ);
+  }
+
+  /** a license test: the license's car alone at gate A, a 3-second countdown, then drive to B */
+  startLicenseTest(id: string, k: number) {
+    audio.unlock();
+    if (this.partyUi.active) return;
+    const lic = licenseById(id), test = lic.tests[k];
+    this.resume();
+    this.champ = null;
+    this.hud.title.classList.add('hidden');
+    this.setClass(lic.cls);
+    this.soloStart(test.a);
+    this.test = { id, k, prog: new TestProgress(this.track, test), offT: 0, over: false, time: null };
+    this.gates.show(test.a, test.b);
+    document.body.classList.add('in-test');
+    this.restartCommon();
+    this.lightsT = COUNTDOWN - 3;
+    this.hud.message(`${lic.name} · Test ${k + 1}: ${test.name}`, 3);
+  }
+
+  private endTest() {
+    if (!this.test) return;
+    this.test = null;
+    this.gates.hide();
+    this.hud.setTest(null);
+    document.body.classList.remove('in-test');
+  }
+
+  /** one physics step of a test: progress towards B, and the ways to fail it */
+  private stepTest(lateral: number, s: number) {
+    const t = this.test!;
+    if (t.over || this.phase !== 'driving') return;
+    t.prog.update(s);
+    if (Math.abs(lateral) > this.track.halfWidth + 2.5) t.offT += PHYSICS_DT; else t.offT = 0;
+    if (t.offT > 0.4) this.testOver(null, 'Off the track! Keep the car on the road all the way to B.');
+    else if (t.prog.dist < -15) this.testOver(null, 'Wrong way! Gate B is ahead of you.');
+    else if (t.prog.done) this.testOver(this.simTime - this.trialStart);
+  }
+
+  /** the test is over: a time (or why it failed), the medal, and what it earned */
+  private testOver(time: number | null, why = '') {
+    const t = this.test!, lic = licenseById(t.id), test = lic.tests[t.k];
+    t.over = true; t.time = time;
+    this.phase = 'finished';
+    this.pilot = new Autopilot(this.track);
+    this.pilot.aggression = 0.7;
+    const medal = time === null ? null : medalFor(test, time);
+    const medals = (progress.medals[lic.id] ??= [null, null, null, null, null]);
+    const hadLicense = progress.licenses.includes(lic.id);
+    medals[t.k] = better(medals[t.k], medal);
+    let note = why;
+    if (time !== null) {
+      note = medal ? (passes(medal) ? 'Silver or better: this test counts towards the license.' : 'Bronze. Silver or better counts towards the license.')
+        : `No medal: bronze is ${medalTime(test, 'bronze').toFixed(1)} s.`;
+    }
+    if (!hadLicense && medals.every(passes)) {
+      progress.licenses.push(lic.id);
+      note = `You earned the ${lic.name} license!`;
+      if (lic.car && giveCar(lic.car)) note += ` The ${CLASSES[lic.car].name} is yours: pick it before a race.`;
+    }
+    saveProgress();
+    const rows = MEDALS.map(m => ({ name: m.toUpperCase(), t: medalTime(test, m), you: false }));
+    if (time !== null) rows.push({ name: 'You', t: time, you: true });
+    rows.sort((a, b) => a.t - b.t);
+    const next = t.k + 1 < lic.tests.length ? t.k + 1 : -1;
+    const actions: { label: string; primary?: boolean; run: () => void }[] = [];
+    if (passes(medal) && next >= 0) actions.push({ label: 'Next test', primary: true, run: () => this.startLicenseTest(lic.id, next) });
+    actions.push({ label: 'Try again', primary: !actions.length, run: () => this.startLicenseTest(lic.id, t.k) });
+    actions.push({ label: 'Licenses', run: () => { this.quitToMenu(); this.menu.licenses(); } });
+    this.hud.showResults(medal ? medal.toUpperCase() : time === null ? 'TEST FAILED' : 'NO MEDAL', `${lic.name} · Test ${t.k + 1}: ${test.name}`,
+      rows.map(r => ({ pos: '', name: r.name, time: `${r.t.toFixed(time !== null && r.you ? 3 : 1)} s`, best: '', you: r.you })), actions, note);
+    this.resultsShown = true;
   }
 
   /** the next round of a championship */
@@ -465,6 +546,7 @@ export class Game implements PartyGame, MenuGame {
   finishSession() {
     this.resume();
     if (this.netRace || this.phase === 'title') return;
+    if (this.test) { if (!this.test.over) this.testOver(null, 'Test stopped from the pause menu.'); return; }
     if (this.race) {
       this.race.finishNow();
       this.phase = 'finished';
@@ -482,6 +564,7 @@ export class Game implements PartyGame, MenuGame {
     if (this.party) { this.resume(); return; }
     // a championship in progress stays saved: Continue picks it up from the menu
     this.champ = null;
+    this.endTest();
     this.toTitle();
     this.menu.home();
     this.hud.title.classList.remove('hidden');
@@ -645,7 +728,10 @@ export class Game implements PartyGame, MenuGame {
     if (input.consume('paint')) { this.model.nextPaint(); this.hud.message(this.model.paintName, 1.4); this.party?.setProfile({ paint: this.paintIndex }); }
     if (input.consume('time')) { this.todIndex = (this.todIndex + 1) % TIMES.length; this.buildEnvironment(); this.hud.message(`Time of day: ${TIMES[this.todIndex]}`, 1.4); }
     if (input.consume('mute')) { settings.sound = !audio.toggleMute(); saveSettings(); this.hud.message(settings.sound ? 'Sound on' : 'Sound off', 1.2); }
-    if (input.consume('reset') && this.phase === 'driving' && !this.paused) { this.resetCar(); this.hud.message('Reset', 1); }
+    if (input.consume('reset') && this.phase === 'driving' && !this.paused) {
+      this.resetCar(); this.hud.message('Reset', 1);
+      if (this.test && !this.test.over) this.testOver(null, 'The car was reset, so the test stopped. Try again!');
+    }
     for (const [a, h] of [['assist1', 'easy'], ['assist2', 'medium'], ['assist3', 'off']] as const) {
       if (input.consume(a)) { this.setHelp(h); settings.help = h; saveSettings(); this.hud.message(`Driving help: ${HELP_LABEL[h]}`, 1.4); }
     }
@@ -665,7 +751,9 @@ export class Game implements PartyGame, MenuGame {
     const assisted = applyDrivingHelp(this.help, inp, this.car);
     this.car.step(assisted);
     // in the air the raw sticks drive the attitude jets (the driving help only shapes steering)
-    this.jets.step(this.car, inp, { boost: inp.boost, hop: inp.hop, airRoll: inp.handbrake, pitch: inp.pitch }, dt, this.help !== 'off');
+    // no thrusters in a license test: it's about the driving
+    const jetsOn = !this.test;
+    this.jets.step(this.car, inp, { boost: jetsOn && inp.boost, hop: jetsOn && inp.hop, airRoll: jetsOn && inp.handbrake, pitch: inp.pitch }, dt, this.help !== 'off');
     this.frameEvents.push(...this.jets.events);
     if (this.jets.hopped) this.frameHop = true;
     this.race?.stepRivals(dt);
@@ -716,10 +804,14 @@ export class Game implements PartyGame, MenuGame {
       this.passedHalf = false;
     }
     this.prevS = s;
+    if (this.test) this.stepTest(near.lateral, s);
 
     // flipped or far off the map: put the car back
     if (this.car.axes().up.y < 0.25 && Math.abs(this.car.speed) < 4) this.flipT += dt; else this.flipT = 0;
-    if (this.flipT > 1.5 || pos.y < -50 || near.dist > this.track.wallOffset + 40) { this.flipT = 0; this.resetCar(); }
+    if (this.flipT > 1.5 || pos.y < -50 || near.dist > this.track.wallOffset + 40) {
+      this.flipT = 0; this.resetCar();
+      if (this.test && !this.test.over && this.phase === 'driving') this.testOver(null, 'The car had to be put back on the road. Try again!');
+    }
   }
 
   frame(now = performance.now()) {
@@ -829,6 +921,11 @@ export class Game implements PartyGame, MenuGame {
       steer: this.inp.steer, gear, rpm: this.car.motorRpm, tyres: this.car.tyreTemp,
       others: [...this.rivals.map(r => ({ x: r.model.root.position.x, z: r.model.root.position.z, color: css(PAINTS[r.e.paint].color) })), ...friends],
     });
+    if (this.test) {
+      const t = this.test, test = licenseById(t.id).tests[t.k];
+      this.hud.setTest({ name: test.name, time: t.over ? t.time : this.phase === 'driving' ? this.simTime - this.trialStart : null,
+        medals: MEDALS.map(m => medalTime(test, m)), done: t.prog.dist / t.prog.length });
+    }
     this.renderer.render(this.scene, this.rig.cam);
   }
 
