@@ -21,7 +21,7 @@ Golden rule for every game in the kovaforge-games org. Set by Mike on 24 Oct 202
 
 ## Configuration
 
-- Keep `workers_dev` set to `false` in `wrangler.jsonc`, so the game is only reached through kovaforge.org routes and their protections.
+- `workers_dev` is `true` in `wrangler.jsonc` per Mike: friends play on the workers.dev address, which sits behind the invite gate (`INVITE_CODE` secret, 404 without the invite). This is a free plan feature and adds no cost. Keep `preview_urls` set to `false`.
 
 ## Secrets
 
