@@ -36,6 +36,8 @@ import type { PartyClient } from './net/party';
 
 const TIMES: TimeOfDay[] = ['noon', 'sunset', 'night', 'morning'];
 const TRACK_NAME = 'Roadster Circuit';
+/** air temperature (°C) at each time of day, for the tyres */
+const AMBIENT: Record<TimeOfDay, number> = { morning: 14, noon: 26, sunset: 20, night: 12 };
 /** the countdown: one light a second, then lights out */
 const COUNTDOWN = 5;
 const HELP_LABEL: Record<DrivingHelp, string> = { easy: 'Easy', medium: 'Medium', off: 'Off' };
@@ -295,6 +297,8 @@ export class Game implements PartyGame, MenuGame {
   private restartCommon(lights = true) {
     this.jets.reset(); this.jets.tank = 1;
     this.canisters.reset();
+    // fresh tyres for everyone; the air temperature sets how fast they cool
+    for (const c of [this.car, ...this.rivals.map(r => r.e.car)]) { c.ambient = AMBIENT[TIMES[this.todIndex]]; c.resetTyres(); }
     this.skids.clear(); this.vapour.clear();
     for (const r of this.rivals) r.skids.clear();
     this.pilot = this.autodrive ? new Autopilot(this.track) : null;

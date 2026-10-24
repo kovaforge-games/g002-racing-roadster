@@ -223,6 +223,9 @@ function runRace(opts: RaceOptions) {
   check(rivals.every(e => e.bestLap !== null && e.bestLap > 55 && e.bestLap < 66), 'race: rival lap times between 55 and 66 s');
   check([...boost.values()].reduce((a, b) => a + b, 0) > 15, 'race: rivals use their boost');
   check([...air.values()].reduce((a, b) => a + b, 0) > 0.5, 'race: rivals pick up air canisters');
+  const temps = race.player.car.tyreTemp;
+  console.log(`tyres after the race: ${temps.map(t => t.toFixed(0)).join(' / ')} °C`);
+  check(temps.every(t => t > 60 && t < 125), 'race: tyres warm up into 60-125 °C');
 }
 // the full field of 11 bots, at the easiest and the hardest difficulty
 {

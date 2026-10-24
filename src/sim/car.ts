@@ -1,6 +1,7 @@
 // The electric car: a Rapier ray-cast vehicle with an EV powertrain (instant torque up to a power
 // limit, regenerative braking, no gears), aero drag and downforce, anti-roll bars, traction
-// control, ABS and the physics side of "driving help" (yaw damping and slide recovery).
+// control, ABS, tyre temperatures and the physics side of "driving help" (yaw damping and slide
+// recovery).
 import RAPIER from '@dimforge/rapier3d-compat';
 import { PHYSICS_DT } from './world';
 
@@ -44,12 +45,26 @@ export const CAR = {
 };
 
 const RHO = 1.2, G = 9.81;
+/** tyre heating (°C/s per unit) and cooling (per second) */
+const TYRE_HEAT = { roll: 0.05, slide: 1.4, force: 2.2, skid: 12, cool: 0.02, coolSpeed: 0.0012 };
 const WHEELS = [
   { x: CAR.track / 2, z: CAR.wheelbase / 2, front: true },
   { x: -CAR.track / 2, z: CAR.wheelbase / 2, front: true },
   { x: CAR.track / 2, z: -CAR.wheelbase / 2, front: false },
   { x: -CAR.track / 2, z: -CAR.wheelbase / 2, front: false },
 ];
+/** tyre temperatures (°C): below `cold` a tyre shows blue, above `hot` red (yellow between).
+ *  Tyre blankets keep them at `blanket` on the grid, so they start out cold but not frozen */
+export const TYRE = { cold: 55, hot: 100, blanket: 45 };
+
+/** grip multiplier at a tyre temperature: a gentle effect. Tyres colder than the blankets (after a
+ *  long cool-down) grip a little less, down to 0.98; overheated ones go off, down to 0.97 */
+export function tyreGrip(t: number) {
+  if (t < TYRE.blanket - 5) return 0.98 + 0.02 * Math.max(0, (t - 15) / (TYRE.blanket - 20));
+  if (t > TYRE.hot + 5) return Math.max(0.97, 1 - (t - TYRE.hot - 5) * 0.0015);
+  return 1;
+}
+
 /** suspension hard points sit this far above the centre of mass */
 const HARDPOINT_Y = CAR.wheelRadius + CAR.restLength - 0.06 - CAR.comHeight;
 
@@ -74,6 +89,12 @@ export class Car {
   tractionControl = true;
   /** per-wheel surface: 1 on tarmac and kerbs, lower on grass (set by the game each step) */
   readonly surface = [1, 1, 1, 1];
+  /** air temperature (°C): tyres cool towards it */
+  ambient = 22;
+  /** tyre temperatures (°C), front left, front right, rear left, rear right: they warm up with
+   *  load, sliding, braking and driving, and cool towards the air temperature */
+  readonly tyreTemp = [TYRE.blanket, TYRE.blanket, TYRE.blanket, TYRE.blanket];
+  private tyreForce = [0, 0, 0, 0];
   abs = true;
 
   // telemetry
@@ -179,13 +200,14 @@ export class Car {
       const front = WHEELS[i].front;
       const share = (front ? CAR.frontDriveShare : 1 - CAR.frontDriveShare) / 2;
       let f = drive * share;
-      if (this.tractionControl && f !== 0) f = Math.sign(f) * Math.min(Math.abs(f), CAR.grip * this.surface[i] * load[i] * 0.95);
+      const grip = CAR.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]);
+      if (this.tractionControl && f !== 0) f = Math.sign(f) * Math.min(Math.abs(f), grip * load[i] * 0.95);
       // Rapier ignores the brake on a wheel that has engine force, so only one is ever set
       let brake = 0;
       if (braking && !reversing) {
         const bShare = (front ? CAR.frontBrakeShare : 1 - CAR.frontBrakeShare) / 2;
         let force = CAR.brakeDecel * CAR.mass * inp.brake * bShare;
-        if (this.abs) force = Math.min(force, CAR.grip * this.surface[i] * load[i] * (front ? 0.97 : 0.9));
+        if (this.abs) force = Math.min(force, grip * load[i] * (front ? 0.97 : 0.9));
         brake = force * dt;
         f = 0;
       } else if (inp.throttle < 0.05 && !reversing && vF > 1) {
@@ -198,7 +220,8 @@ export class Car {
       v.setWheelEngineForce(i, f);
       v.setWheelBrake(i, brake);
       v.setWheelSideFrictionStiffness(i, inp.handbrake && !front ? 0.45 : 1);
-      v.setWheelFrictionSlip(i, CAR.grip * this.surface[i]);
+      v.setWheelFrictionSlip(i, grip);
+      this.tyreForce[i] = Math.abs(f) + brake / dt;
     }
     this.powerKw = (drive * Math.max(0, vF) - regen - (braking ? Math.min(CAR.mass * 3, CAR.brakeDecel * CAR.mass * inp.brake) * Math.max(0, vF) * 0.4 : 0)) / 1000;
 
@@ -276,8 +299,22 @@ export class Car {
       if (inp.handbrake && !WHEELS[i].front && Math.abs(vF) > 3) s = Math.max(s, 0.8);
       if (!this.abs && braking && inp.brake > 0.85 && Math.abs(vF) > 4) s = Math.max(s, 0.7);
       w.slip = w.contact ? Math.min(1, s) : 0;
+
+      // tyre temperature: rolling under load, sliding sideways, braking and driving heat it;
+      // the air cools it, faster at speed
+      const loadN = w.contact ? load[i] / (CAR.mass * G / 4) : 0;
+      // (the more a tyre is loaded the harder it works, so the outside tyres in a corner heat up most)
+      const heat = loadN ** 2 * (TYRE_HEAT.roll * Math.abs(vF) + TYRE_HEAT.slide * Math.min(lat, 4)) + TYRE_HEAT.force * this.tyreForce[i] / (CAR.mass * G / 4) * Math.min(1, Math.abs(vF) / 10)
+        + (w.slip > 0.5 ? TYRE_HEAT.skid * w.slip : 0);
+      // (a very hot tyre sheds heat much faster, so even a scrubbing, sliding tyre levels off)
+      const hot = 1 + Math.max(0, this.tyreTemp[i] - 90) / 12;
+      const cool = (this.tyreTemp[i] - this.ambient) * (TYRE_HEAT.cool + TYRE_HEAT.coolSpeed * Math.abs(vF)) * hot;
+      this.tyreTemp[i] += (heat - cool) * dt;
     }
   }
+
+  /** fresh tyres off the blankets (a new session) */
+  resetTyres() { this.tyreTemp.fill(Math.max(this.ambient, TYRE.blanket)); }
 
   /** consume the impact recorded since the last call */
   takeImpact() { const i = this.impact; this.impact = 0; return i; }
