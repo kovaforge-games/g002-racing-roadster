@@ -15,6 +15,12 @@ export const PAINTS = [
   { name: 'Liquid Silver', color: 0xb4b8bd, metalness: 0.85, roughness: 0.22 },
   { name: 'Graphite', color: 0x3a3e44, metalness: 0.55, roughness: 0.3 },
   { name: 'Gloss Black', color: 0x0b0b0d, metalness: 0.3, roughness: 0.2 },
+  { name: 'Racing Orange', color: 0xd9540f, metalness: 0.45, roughness: 0.28 },
+  { name: 'Volt Yellow', color: 0xd9c414, metalness: 0.35, roughness: 0.3 },
+  { name: 'Sky Blue', color: 0x3d8fd6, metalness: 0.5, roughness: 0.28 },
+  { name: 'Lime Green', color: 0x5fb41c, metalness: 0.4, roughness: 0.3 },
+  { name: 'Ultra Violet', color: 0x5a2a9c, metalness: 0.55, roughness: 0.28 },
+  { name: 'Coral Pink', color: 0xe0607a, metalness: 0.4, roughness: 0.3 },
 ];
 
 /** dark ceilings inside the wheel arches, following the arch outline */

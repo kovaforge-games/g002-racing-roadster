@@ -1,6 +1,7 @@
 // The game: builds the world, runs physics at a fixed 120 Hz with interpolated rendering,
-// and handles the start lights, the race against the AI rivals (or free practice), party races
-// against friends, lap timing, thrusters and air pickups, resets and the player's options.
+// and handles the sessions (a race against the AI rivals, time trial or practice) with the
+// countdown and the pause menu, party races against friends, lap timing, thrusters and air
+// pickups, resets and the player's settings.
 import * as THREE from 'three';
 import { Track } from './sim/track';
 import { Terrain } from './sim/terrain';
@@ -11,7 +12,7 @@ import { updateSurface } from './sim/surface';
 import { Autopilot } from './sim/autopilot';
 import { Jets, type JetEvent } from './sim/jets';
 import { Canisters, CANISTER_AIR } from './sim/canisters';
-import { Race, RACE_LAPS, type Entrant } from './sim/race';
+import { Race, type Entrant } from './sim/race';
 import { Renderer, type GraphicsSettings } from './render/renderer';
 import type { Quality } from './render/graphics';
 import { Environment, type TimeOfDay } from './render/environment';
@@ -29,11 +30,18 @@ import { input, type DriveInput } from './core/input';
 import { audio } from './core/audio';
 import { Hud, formatTime } from './ui/hud';
 import { PartyUi, type PartyGame } from './ui/partyUi';
+import { Menu, type MenuGame } from './ui/menu';
+import { settings, setup, saveSettings, type SessionMode } from './core/settings';
 import type { PartyClient } from './net/party';
 
 const TIMES: TimeOfDay[] = ['noon', 'sunset', 'night', 'morning'];
+const TRACK_NAME = 'Roadster Circuit';
+/** the countdown: one light a second, then lights out */
+const COUNTDOWN = 5;
 const HELP_LABEL: Record<DrivingHelp, string> = { easy: 'Easy', medium: 'Medium', off: 'Off' };
-const GRID_S = -32; // in free practice the car starts 32 m before the line, so lap 1 is a flying lap
+const GRID_S = -32; // in practice the car starts 32 m before the line, so lap 1 is a flying lap
+/** time trial: a standing start on pole */
+const TRIAL_S = -10;
 const JET_MESSAGES: Partial<Record<JetEvent, [string, number]>> = {
   launch: ['Perfect launch!', 1.4], flip: ['Flip!', 1.2], roll: ['Barrel roll!', 1.2], spin: ['360!', 1.2],
   'clean-landing': ['Clean landing', 1], empty: ['Air tank empty', 1.6],
@@ -57,7 +65,7 @@ interface RivalView { e: Entrant; model: CarModel; fx: JetFx; skids: SkidMarks; 
 
 export interface GameOptions { quality?: Quality; safe?: boolean; tod?: TimeOfDay; autodrive?: boolean }
 
-export class Game implements PartyGame {
+export class Game implements PartyGame, MenuGame {
   readonly track = new Track();
   readonly terrain: Terrain;
   readonly world;
@@ -83,8 +91,15 @@ export class Game implements PartyGame {
   private frameEvents: JetEvent[] = [];
   private frameHop = false;
   private frameAir = 0;
-  /** null in free practice */
+  /** null in practice, time trial and party races */
   race: Race | null;
+  session: SessionMode = 'race';
+  readonly trackName = TRACK_NAME;
+  readonly menu: Menu;
+  /** time trial: laps to drive, and each lap's time */
+  private trialLaps = 3;
+  private lapTimes: number[] = [];
+  private trialStart = 0;
   private rivals: RivalView[] = [];
   private autodrive: boolean;
   private finishT = 0;
@@ -96,12 +111,12 @@ export class Game implements PartyGame {
 
   phase: Phase = 'title';
   paused = false;
-  help: DrivingHelp = 'easy';
+  help: DrivingHelp = settings.help;
   private todIndex = 0;
   private acc = 0;
   private last = performance.now();
   private hint = 0;
-  private lightsT = 0; private lightsHold = 0;
+  private lightsT = 0;
   private flipT = 0;
   private kerb = 0;
   private inp: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, lookBack: false, boost: false, hop: false, pitch: 0 };
@@ -141,7 +156,7 @@ export class Game implements PartyGame {
     this.renderer.configure(graphics);
     const quality = this.renderer.quality;
 
-    if (opts.tod) this.todIndex = Math.max(0, TIMES.indexOf(opts.tod));
+    this.todIndex = Math.max(0, TIMES.indexOf(opts.tod ?? setup.tod));
     this.buildEnvironment();
     this.trackScene = new TrackScene(this.track, this.terrain, quality);
     this.canisters = new Canisters(this.track);
@@ -173,13 +188,16 @@ export class Game implements PartyGame {
     this.remote.setNight(this.env.preset.night);
     this.scene.add(this.remote.group);
     this.hud.ready();
-    this.partyUi = new PartyUi(this, this.hud.title, this.hud.paused);
-    input.onAny = code => this.start(code);
+    this.partyUi = new PartyUi(this);
+    this.menu = new Menu(this, this.hud.title, this.hud.paused, this.partyUi.buttons);
+    this.rig.mode = settings.camera;
+    if (audio.muted === settings.sound) audio.toggleMute();
+    input.onAny = () => audio.unlock();
   }
 
   /** the race puts everyone on the grid; the rivals sit there behind the title screen */
   private buildRace() {
-    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets);
+    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: setup.opponents, laps: setup.laps, difficulty: setup.difficulty });
     for (const e of this.race.rivals) {
       // copies of the player's model: building one from scratch takes seconds
       const model = cloneModel(this.model);
@@ -212,21 +230,35 @@ export class Game implements PartyGame {
     this.remote?.setNight(this.env.preset.night);
   }
 
-  /** from the title screen: any key races, F goes to free practice */
-  start(code?: string) {
+  /** from the setup screen: a race, time trial or practice with the current race setup */
+  startSession(mode: SessionMode) {
     audio.unlock();
-    if (this.phase !== 'title' || this.partyUi.active || this.partyUi.open) return;
-    if (code === 'KeyF') this.practice();
+    if (this.partyUi.active) return;
+    this.resume();
+    this.session = mode;
+    const tod = Math.max(0, TIMES.indexOf(setup.tod));
+    if (tod !== this.todIndex) { this.todIndex = tod; this.buildEnvironment(); }
     this.hud.title.classList.add('hidden');
-    this.beginLights();
+    if (mode === 'race') {
+      const r = this.race;
+      if (!r || r.laps !== setup.laps || r.difficulty !== setup.difficulty || r.rivals.length !== setup.opponents) { this.dropRace(); this.buildRace(); }
+      this.restartRace();
+    } else if (mode === 'timetrial') {
+      this.trialLaps = setup.laps;
+      this.soloStart(TRIAL_S);
+      this.restartCommon();
+    } else {
+      this.soloStart(GRID_S);
+      this.restartCommon(false);
+      this.phase = 'driving';
+    }
   }
 
   private beginLights() {
     this.phase = 'lights';
     this.lightsT = 0;
-    this.lightsHold = 0.4 + Math.random() * 0.8;
     this.rig.reset();
-    this.hud.setLights(0);
+    this.hud.setLights(1); this.trackScene.setStartLights(1);
   }
 
   /** let every car settle on its springs, then take fresh interpolation snapshots */
@@ -247,12 +279,11 @@ export class Game implements PartyGame {
     this.hud?.showDelta(null);
   }
 
-  /** drop the rivals and drive alone, from the old flying-lap start */
-  private practice() {
+  /** drop the rivals and drive alone, from a point s metres along the lap */
+  private soloStart(s: number) {
     this.dropRace();
-    const g = this.track.pointAt(GRID_S, 0);
-    this.car.place(g.x, g.y, g.z, this.track.headingAt(GRID_S));
-    this.restartCommon();
+    const g = this.track.pointAt(s, 0);
+    this.car.place(g.x, g.y, g.z, this.track.headingAt(s));
   }
 
   /** everyone back on the grid for another race */
@@ -267,7 +298,7 @@ export class Game implements PartyGame {
     this.skids.clear(); this.vapour.clear();
     for (const r of this.rivals) r.skids.clear();
     this.pilot = this.autodrive ? new Autopilot(this.track) : null;
-    this.finishT = 0; this.resultsShown = false; this.lastPos = 0; this.lastRaceLap = 0;
+    this.finishT = 0; this.resultsShown = false; this.lastPos = 0; this.lastRaceLap = 0; this.lapTimes = [];
     this.hud.results.classList.add('hidden');
     this.settle();
     this.resetLaps();
@@ -292,10 +323,70 @@ export class Game implements PartyGame {
     if (this.phase === 'title') return;
     this.phase = 'title';
     this.hud.setLights(-1); this.trackScene.setStartLights(0);
+    if (!this.race && !this.party) this.buildRace();
     if (this.race) this.race.grid();
     else { const g = this.track.pointAt(GRID_S, 0); this.car.place(g.x, g.y, g.z, this.track.headingAt(GRID_S)); }
     this.restartCommon(false);
     this.rig.reset();
+  }
+
+  // ---- the pause menu (the screens are in ui/menu.ts)
+
+  get inParty() { return !!this.party; }
+
+  togglePause() {
+    if (this.phase === 'title') return;
+    // a party race keeps running: this only opens the menu (with Leave party)
+    if (this.netRace) {
+      const open = this.hud.paused.classList.toggle('hidden') === false;
+      if (open) this.menu.showPause();
+      return;
+    }
+    if (this.paused) { this.resume(); return; }
+    this.paused = true;
+    this.menu.showPause();
+    this.hud.paused.classList.remove('hidden');
+  }
+
+  resume() { this.paused = false; this.hud.paused.classList.add('hidden'); }
+
+  /** the same session again from the start */
+  restart() {
+    if (this.party) { this.resume(); return; }
+    this.startSession(this.session);
+  }
+
+  /** end the session now and show how it went */
+  finishSession() {
+    this.resume();
+    if (this.netRace || this.phase === 'title') return;
+    if (this.race) {
+      this.race.finishNow();
+      this.phase = 'finished';
+      this.pilot = new Autopilot(this.track);
+      this.showResults();
+      this.finishT = 2;
+    } else {
+      this.phase = 'finished';
+      this.pilot = new Autopilot(this.track);
+      this.showTrialResults(true);
+    }
+  }
+
+  quitToMenu() {
+    if (this.party) { this.resume(); return; }
+    this.toTitle();
+    this.menu.home();
+    this.hud.title.classList.remove('hidden');
+  }
+
+  leaveParty() { this.partyUi.leave(); }
+
+  /** settings changed in the menu */
+  applySettings() {
+    this.setHelp(settings.help);
+    this.rig.mode = settings.camera;
+    if (audio.muted === settings.sound) audio.toggleMute();
   }
 
   /** in a party the AI rivals step aside: the race is against the friends */
@@ -303,6 +394,7 @@ export class Game implements PartyGame {
     this.party = pc;
     document.body.classList.add('in-party');
     this.hud.title.classList.add('hidden');
+    this.resume();
     if (this.race) { this.dropRace(); this.toPartyGrid(0); }
   }
 
@@ -312,7 +404,7 @@ export class Game implements PartyGame {
     this.remote.clear();
     document.body.classList.remove('in-party');
     this.toTitle();
-    if (!this.race) { this.buildRace(); this.restartCommon(false); }
+    this.menu.home();
     this.hud.title.classList.remove('hidden');
   }
 
@@ -432,20 +524,16 @@ export class Game implements PartyGame {
   }
 
   private handleActions() {
-    if (input.consume('pause') && this.phase !== 'title') {
-      // a party race keeps running: Esc only opens the menu (with Leave party)
-      if (this.netRace) this.hud.paused.classList.toggle('hidden');
-      else { this.paused = !this.paused; this.hud.paused.classList.toggle('hidden', !this.paused); }
-    }
+    // Esc: back out of a menu screen first, otherwise pause or resume
+    if (input.consume('pause') && !this.menu.back()) this.togglePause();
     if (input.consume('help')) this.hud.help.classList.toggle('hidden');
-    if (input.consume('camera')) { this.rig.next(); this.hud.message(`Camera: ${this.rig.mode}`, 1.2); }
+    if (input.consume('camera')) { this.rig.next(); settings.camera = this.rig.mode; saveSettings(); this.hud.message(`Camera: ${this.rig.mode}`, 1.2); }
     if (input.consume('paint')) { this.model.nextPaint(); this.hud.message(this.model.paintName, 1.4); this.party?.setProfile({ paint: this.paintIndex }); }
     if (input.consume('time')) { this.todIndex = (this.todIndex + 1) % TIMES.length; this.buildEnvironment(); this.hud.message(`Time of day: ${TIMES[this.todIndex]}`, 1.4); }
-    if (input.consume('mute')) this.hud.message(audio.toggleMute() ? 'Sound off' : 'Sound on', 1.2);
+    if (input.consume('mute')) { settings.sound = !audio.toggleMute(); saveSettings(); this.hud.message(settings.sound ? 'Sound on' : 'Sound off', 1.2); }
     if (input.consume('reset') && this.phase === 'driving' && !this.paused) { this.resetCar(); this.hud.message('Reset', 1); }
-    if (input.consume('practice') && this.phase === 'finished' && this.resultsShown) this.practice();
     for (const [a, h] of [['assist1', 'easy'], ['assist2', 'medium'], ['assist3', 'off']] as const) {
-      if (input.consume(a)) { this.setHelp(h); this.hud.message(`Driving help: ${HELP_LABEL[h]}`, 1.4); }
+      if (input.consume(a)) { this.setHelp(h); settings.help = h; saveSettings(); this.hud.message(`Driving help: ${HELP_LABEL[h]}`, 1.4); }
     }
   }
 
@@ -480,7 +568,7 @@ export class Game implements PartyGame {
       const me = this.race.player;
       if (this.phase === 'driving' && me.lap !== this.lastRaceLap) {
         this.lastRaceLap = me.lap;
-        if (me.lap === RACE_LAPS && RACE_LAPS > 1) this.hud.message('Final lap!', 2);
+        if (me.lap === this.race.laps && this.race.laps > 1) this.hud.message('Final lap!', 2);
       }
       if (this.phase === 'driving' && me.finished) {
         // cross the line: the autopilot takes a cool-down lap while the results come in
@@ -500,12 +588,14 @@ export class Game implements PartyGame {
         const t = this.simTime - this.lapStart;
         const delta = this.bestLap !== null ? t - this.bestLap : null;
         this.lastLap = t;
+        this.lapTimes.push(t);
         if (this.bestLap === null || t < this.bestLap) { this.bestLap = t; store()?.setItem('rd-best', String(t)); this.hud.message('Best lap!', 2.5); }
         this.hud.showDelta(delta);
       }
       if (this.lapStart === null || this.passedHalf) {
         this.lap++; this.lapStart = this.simTime; this.passedHalf = false;
         if (this.netRace && !this.netRace.finished && this.lap > this.netRace.laps) this.finishPartyRace();
+        if (!this.netRace && this.session === 'timetrial' && this.lap > this.trialLaps) this.finishTrial();
       }
     } else if (this.prevS < 80 && s > this.track.total - 80 && this.lapStart !== null) {
       // reversed back over the line: this lap no longer counts
@@ -526,12 +616,21 @@ export class Game implements PartyGame {
     this.inp = input.poll(dt);
     if (this.inp.hop) this.hopQueued = true;
 
+    // the countdown: a light a second from 5 down to 1, then lights out
     if (this.phase === 'lights' && !this.paused && !this.netRace) {
       this.lightsT += dt;
-      const lit = Math.min(5, Math.floor(this.lightsT / 0.8));
-      if (this.lightsT < 4.0 + this.lightsHold) { this.hud.setLights(lit); this.trackScene.setStartLights(lit); }
-      else { this.phase = 'driving'; if (this.race) this.race.go(); else this.jets.armLaunch(); this.hud.setLights(0); this.trackScene.setStartLights(0); this.hud.message('GO!', 1.2); setTimeout(() => this.hud.setLights(-1), 900); }
+      const lit = Math.min(5, Math.floor(this.lightsT) + 1);
+      if (this.lightsT < COUNTDOWN) { this.hud.setLights(lit); this.trackScene.setStartLights(lit); }
+      else {
+        this.phase = 'driving';
+        if (this.race) this.race.go(); else this.jets.armLaunch();
+        this.trialStart = this.simTime;
+        this.hud.setLights(0); this.trackScene.setStartLights(0); this.hud.message('GO!', 1.2);
+        setTimeout(() => { if (this.phase !== 'lights') this.hud.setLights(-1); }, 900);
+      }
     }
+    document.body.classList.toggle('in-session', this.phase !== 'title' && !this.resultsShown);
+    document.body.classList.toggle('on-title', this.phase === 'title' && !this.party);
 
     if (!this.paused) {
       this.acc += dt;
@@ -620,7 +719,6 @@ export class Game implements PartyGame {
     if (this.phase === 'finished') {
       this.finishT += dt;
       if (this.finishT > 2 && (!this.resultsShown || Math.floor(this.finishT) !== Math.floor(this.finishT - dt))) this.showResults();
-      if (this.resultsShown && this.inp.hop) { this.restartRace(); return; }
     }
     // a quick call-out when the player gains places
     if (this.phase === 'driving' && this.lastPos && me.pos < this.lastPos && race.time > 3) this.hud.message(`P${me.pos}`, 1.1);
@@ -629,7 +727,7 @@ export class Game implements PartyGame {
     this.raceHudT = 0.2;
     const order = race.standings, lead = order[0];
     this.hud.setRace({
-      pos: me.pos, total: order.length, lap: me.lap, laps: RACE_LAPS,
+      pos: me.pos, total: order.length, lap: me.lap, laps: race.laps,
       field: order.map(e => {
         const behind = lead.dist - e.dist;
         const gap = e === lead ? (e.finished ? 'FIN' : '') : e.finished && lead.finished ? `+${(e.finishTime! - lead.finishTime!).toFixed(1)}`
@@ -641,12 +739,47 @@ export class Game implements PartyGame {
 
   private showResults() {
     const race = this.race!, order = race.standings, lead = order[0];
+    const est = (e: Entrant) => e.estimated ? ' (est.)' : '';
     const rows = order.map(e => ({
-      pos: e.pos, name: e.name, you: e === race.player, best: formatTime(e.bestLap),
-      time: !e.finished ? 'racing…' : e === lead ? formatTime(e.finishTime) : `+${(e.finishTime! - lead.finishTime!).toFixed(3)}`,
+      pos: e.pos, name: e.name, you: e === race.player, best: `best ${formatTime(e.bestLap)}`,
+      time: !e.finished ? 'racing…' : e === lead ? formatTime(e.finishTime) + est(e) : `+${(e.finishTime! - lead.finishTime!).toFixed(3)}${est(e)}`,
     }));
     const me = race.player.pos;
-    this.hud.showResults(me === 1 ? 'YOU WIN' : `P${me}`, rows);
+    this.hud.showResults(me === 1 ? 'YOU WIN' : `P${me}`, 'RESULTS', rows, this.afterActions(),
+      order.some(e => e.estimated) ? 'Session finished early: times for drivers still racing are estimates.' : '');
+    this.resultsShown = true;
+  }
+
+  /** the buttons under the results */
+  private afterActions() {
+    const again = this.session === 'race' ? 'Race again' : this.session === 'timetrial' ? 'Try again' : 'Drive again';
+    return [{ label: again, primary: true, run: () => this.restart() }, { label: 'Menu', run: () => this.quitToMenu() }];
+  }
+
+  /** time trial over: total time and every lap */
+  private finishTrial() {
+    this.phase = 'finished';
+    this.pilot = new Autopilot(this.track);
+    this.showTrialResults(false);
+  }
+
+  /** the laps of a time trial or practice; `early` when the session was finished from the pause menu */
+  private showTrialResults(early: boolean) {
+    const laps = this.lapTimes, best = Math.min(...laps);
+    const rows = laps.map((t, k) => ({ pos: k + 1, name: `Lap ${k + 1}`, time: formatTime(t), best: t === best ? 'best' : '', you: t === best }));
+    let title: string, note = '';
+    if (this.session === 'timetrial' && !early) {
+      const total = this.simTime - this.trialStart;
+      const key = `rd-trial-${this.trialLaps}`;
+      const record = Number(store()?.getItem(key) ?? 0);
+      title = formatTime(total);
+      if (!record || total < record) { store()?.setItem(key, String(total)); note = record ? `New record! ${(record - total).toFixed(3)} s faster than before.` : 'Your first record.'; }
+      else note = `Record ${formatTime(record)} (+${(total - record).toFixed(3)} s)`;
+    } else {
+      title = laps.length ? `Best ${formatTime(best)}` : 'No laps';
+      note = `${laps.length} lap${laps.length === 1 ? '' : 's'} completed`;
+    }
+    this.hud.showResults(title, this.session === 'timetrial' ? 'TIME TRIAL' : 'PRACTICE', rows, this.afterActions(), note);
     this.resultsShown = true;
   }
 

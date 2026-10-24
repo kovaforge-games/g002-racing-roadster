@@ -24,7 +24,7 @@ export class Hud {
   private toast: HTMLElement; private toastTimer = 0;
   private map: HTMLCanvasElement; private mapBg: HTMLCanvasElement;
   private mapScale = 1; private mapOx = 0; private mapOz = 0;
-  private lights: HTMLElement; private lightDots: HTMLElement[] = [];
+  private lights: HTMLElement; private lightDots: HTMLElement[] = []; private countdown: HTMLElement;
   readonly title: HTMLElement; readonly help: HTMLElement; readonly paused: HTMLElement;
   private info: HTMLElement;
   private air: HTMLElement; private airFill: HTMLElement; private airPct: HTMLElement; private hopDot: HTMLElement; private airGain: HTMLElement;
@@ -83,17 +83,13 @@ export class Hud {
     this.toast = el('div', 'toast', this.root);
     this.lights = el('div', 'startlights', this.root);
     for (let k = 0; k < 5; k++) this.lightDots.push(el('div', 'light', this.lights));
+    this.countdown = el('div', 'countdown', this.root);
     this.info = el('div', 'info', this.root);
 
     this.title = el('div', 'overlay title', document.body);
     this.title.innerHTML = `
       <div class="brand">ROADSTER</div>
       <div class="tag">Electric. Instant. Yours to drive.</div>
-      <div class="prompt">Press any key or click to race · F for free practice</div>
-      <div class="keys">
-        <span><b>W A S D</b> / arrows drive</span><span><b>Shift</b> boost</span><span><b>E</b> hop</span><span><b>Space</b> handbrake</span><span><b>C</b> camera</span>
-        <span><b>R</b> reset</span><span><b>P</b> paint</span><span><b>T</b> time of day</span><span><b>H</b> help</span>
-      </div>
       <a class="showroom-link" href="#showroom">See the car in the showroom ›</a>
       <div class="loading">Loading…</div>`;
     this.help = el('div', 'overlay help hidden', document.body);
@@ -121,7 +117,6 @@ export class Hud {
       <p>Press H to close</p>`;
     this.results = el('div', 'overlay results hidden', document.body);
     this.paused = el('div', 'overlay paused hidden', document.body);
-    this.paused.innerHTML = '<h2><span class="solo-only">Paused</span><span class="party-only">Menu</span></h2><p>Press Esc to continue</p>';
   }
 
   private arcPath(from: number, to: number) {
@@ -209,12 +204,20 @@ export class Hud {
     if (this.rows.innerHTML !== html) this.rows.innerHTML = html;
   }
 
-  /** the results table after the player crosses the line */
-  showResults(title: string, rows: { pos: number; name: string; time: string; best: string; you: boolean }[]) {
-    this.results.innerHTML = `<h2>${title}</h2><div class="sub">RESULTS</div><table>${rows.map(r =>
-      `<tr class="${r.you ? 'you' : ''}"><td>${r.pos}</td><td>${r.name}</td><td></td><td>${r.time}</td><td>best ${r.best}</td></tr>`).join('')}</table>
-      <p>Enter to race again · F for free practice</p>`;
+  /** the results table after the player crosses the line (or the session is finished early) */
+  showResults(title: string, sub: string, rows: { pos: number | string; name: string; time: string; best: string; you: boolean }[],
+    actions: { label: string; primary?: boolean; run: () => void }[], note = '') {
+    this.results.innerHTML = `<h2>${title}</h2><div class="sub">${sub}</div><table>${rows.map(r =>
+      `<tr class="${r.you ? 'you' : ''}"><td>${r.pos}</td><td>${r.name}</td><td></td><td>${r.time}</td><td>${r.best}</td></tr>`).join('')}</table>
+      ${note ? `<p>${note}</p>` : ''}<div class="row"></div>`;
+    const row = this.results.querySelector('.row')!;
+    for (const a of actions) {
+      const b = el('button', `btn big${a.primary ? ' primary' : ''}`, row as HTMLElement, a.label);
+      b.onclick = a.run;
+    }
+    this.results.setAttribute('data-ui', '');
     this.results.classList.remove('hidden');
+    (row.firstElementChild as HTMLElement | null)?.focus({ preventScroll: true });
   }
 
   /** air tank 0..1, whether the rear jets are firing and whether a hop is ready */
@@ -246,10 +249,16 @@ export class Hud {
     this.toastTimer = seconds;
   }
 
-  /** start lights: n red lit (1..5), 0 = off, -1 = hide */
+  /** start lights: n red lit (1..5) with the countdown under them (5 down to 1), 0 = off, -1 = hide */
   setLights(n: number) {
     this.lights.classList.toggle('show', n >= 0);
     this.lightDots.forEach((d, k) => d.classList.toggle('on', k < n));
+    const text = n >= 1 && n <= 5 ? String(6 - n) : '';
+    if (this.countdown.textContent !== text) {
+      this.countdown.textContent = text;
+      // restart the pop-in animation for each new number
+      this.countdown.classList.remove('tick'); void this.countdown.offsetWidth; if (text) this.countdown.classList.add('tick');
+    }
   }
 
   ready() { this.title.querySelector('.loading')?.remove(); this.title.classList.add('ready'); }

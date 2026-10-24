@@ -2,7 +2,7 @@
 // gamepad (left stick, triggers) takes over whenever it asks for more.
 import type { CarInputs } from '../sim/car';
 
-export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop' | 'practice';
+export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop';
 
 const KEYS = {
   left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'],
@@ -11,7 +11,7 @@ const KEYS = {
 };
 const PRESS: Record<string, Action> = {
   KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'paint', KeyH: 'help', KeyT: 'time', KeyM: 'mute',
-  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', KeyE: 'hop', Enter: 'hop', KeyF: 'practice',
+  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', KeyE: 'hop', Enter: 'hop',
 };
 /** standard-mapping gamepad buttons: A hops, B boosts (held, read in poll) */
 const PAD_PRESS: Record<number, Action> = { 0: 'hop', 3: 'camera', 8: 'reset', 9: 'pause', 2: 'paint' };

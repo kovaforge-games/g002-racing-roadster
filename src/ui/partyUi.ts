@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { PartyClient, formatCode, joinUrl, savedName, saveName, type LobbyState, type RaceResult } from '../net/party';
 import { PAINTS } from '../render/carModel';
 import { formatTime } from './hud';
+import { h } from './dom';
 
 /** what the party screens need from the game */
 export interface PartyGame {
@@ -21,19 +22,6 @@ export interface PartyGame {
   closeMenu(): void;
 }
 
-type Attrs = Record<string, string | boolean | number | ((e: Event) => void)>;
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs | null, ...kids: (Node | string | null | false)[]) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs ?? {})) {
-    if (typeof v === 'function') e.addEventListener(k.slice(2), v as EventListener);
-    else if (k === 'class') e.className = String(v);
-    else if (typeof v === 'boolean') { if (v) e.setAttribute(k, ''); }
-    else e.setAttribute(k, String(v));
-  }
-  for (const c of kids) if (c) e.append(c);
-  return e;
-}
-
 const hex = (n: number) => `#${PAINTS[n % PAINTS.length].color.toString(16).padStart(6, '0')}`;
 
 export class PartyUi {
@@ -47,15 +35,13 @@ export class PartyUi {
   private lastCode = '';
   private shown = '';
 
-  constructor(private game: PartyGame, title: HTMLElement, pause: HTMLElement) {
+  /** Make party and Join party, for the home screen */
+  readonly buttons = h('div', { class: 'party-buttons', 'data-ui': true },
+    h('button', { class: 'btn big primary', onclick: () => this.create() }, 'Make party'),
+    h('button', { class: 'btn big', onclick: () => this.joinScreen() }, 'Join party'));
+
+  constructor(private game: PartyGame) {
     document.body.appendChild(this.screen);
-    const buttons = () => h('div', { class: 'party-buttons', 'data-ui': true },
-      h('button', { class: 'btn big primary', onclick: () => this.create() }, 'Create party'),
-      h('button', { class: 'btn big', onclick: () => this.joinScreen() }, 'Join party'));
-    title.querySelector('.prompt')?.after(buttons());
-    pause.append(h('div', { class: 'solo-only' }, h('p', null, 'Race friends'), buttons()),
-      h('div', { class: 'party-only', 'data-ui': true }, h('p', null, 'The race keeps going while this is open.'),
-        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => this.game.closeMenu() }, 'Back to the race'), h('button', { class: 'btn', onclick: () => this.leave() }, 'Leave party'))));
     const code = new URLSearchParams(location.search).get('code');
     if (code) this.joinScreen(code);
   }

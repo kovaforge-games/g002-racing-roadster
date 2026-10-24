@@ -47,7 +47,7 @@ async function boot() {
   document.querySelector('.boot')?.remove();
   (window as unknown as { __game: Game }).__game = game;
   game.renderer.gl.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); showErrorBanner('The graphics context was lost.'); });
-  if (params.has('autodrive')) game.start();
+  if (params.has('autodrive')) game.startSession('race');
   game.run();
 }
 
