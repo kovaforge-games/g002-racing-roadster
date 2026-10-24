@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "worker-test": "node --import tsx --import ./worker/cf-stub.mjs --test worker/invite.test.ts",
+    "smoke-gate-test": "node --test scripts/smoke-gate.test.mjs",
     "typecheck": "tsc --noEmit && tsc -p worker",
     "party-server": "tsx server/server.ts",
     "party-test": "tsx scripts/party-test.ts",

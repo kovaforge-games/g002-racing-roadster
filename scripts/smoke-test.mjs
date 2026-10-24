@@ -11,7 +11,7 @@ try {
     const r = await fetch(new URL(p, base), { redirect: 'manual' });
     if (r.status !== 404 || r.headers.get('set-cookie')) fail(`gate: ${new URL(p, base).pathname} returned ${r.status}, expected 404`);
   }
-  const robots = await fetch(new URL('/robots.txt', base));
+  const robots = await fetch(new URL('robots.txt', base));
   if (robots.status !== 200 || !(await robots.text()).includes('Disallow: /')) fail(`robots.txt returned ${robots.status}`);
   console.log(`ok  gate: ${base} is 404 without invite, robots.txt 200`);
   if (!INVITE) { console.log('::notice::INVITE_CODE not set: skipped the page check behind the gate'); process.exit(0); }
