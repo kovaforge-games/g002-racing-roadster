@@ -1,5 +1,5 @@
-// Drives the real game in headless Chromium: title screen, start lights, keyboard driving, the
-// race field, boost and hop, and the autopilot demo. Saves screenshots to test-results/ and fails on page errors or if the car
+// Drives the real game in headless Chromium: home screen, race setup, countdown, keyboard driving,
+// the race field, the pause menu, boost and hop, and the autopilot demo. Saves screenshots to test-results/ and fails on page errors or if the car
 // doesn't move.   node scripts/browser-test.mjs [url]   (start `npm run dev` or `npm run preview` first)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -25,10 +25,16 @@ await page.waitForTimeout(1500);
 await page.screenshot({ path: 'test-results/1-title.png' });
 console.log('graphics', (await state()).quality);
 
-await page.keyboard.press('Enter');
+// home screen -> Quick Race setup -> Start: the 5 second countdown, then lights out
+check(await page.locator('.tile').count() === 8, 'home screen: eight modes');
+await page.click('.tile-quick');
+await page.screenshot({ path: 'test-results/1b-setup.png' });
+await page.click('button.start');
 await page.waitForTimeout(2500);
 await page.screenshot({ path: 'test-results/2-lights.png' });
+const t0 = Date.now();
 await page.waitForFunction(() => window.__game.phase === 'driving', null, { timeout: 90000 });
+console.log(`countdown done ${((Date.now() - t0) / 1000 + 2.5).toFixed(1)} s after Start`);
 const s0 = await state();
 await page.keyboard.down('KeyW');
 await page.waitForFunction(() => window.__game.car.speed > 25, null, { timeout: 90000 }).catch(() => {});
@@ -59,6 +65,14 @@ const tank2 = await page.evaluate(() => window.__game.jets.tank);
 console.log(`air tank: ${(tank0 * 100).toFixed(0)}% -> boost ${(tank1 * 100).toFixed(0)}% -> hop ${(tank2 * 100).toFixed(0)}%`);
 check(tank1 < tank0 - 0.02, 'boost uses air');
 check(tank2 < tank1 - 0.1, 'hop uses air');
+
+// pause menu: Esc pauses, Resume carries on
+await page.keyboard.press('Escape');
+// (software rendering runs at a couple of frames a second: give the key a few frames)
+check(await page.waitForFunction(() => window.__game.paused && !document.querySelector('.overlay.paused').classList.contains('hidden'), null, { timeout: 10000 }).then(() => true, () => false), 'Esc opens the pause menu');
+await page.screenshot({ path: 'test-results/4c-pause.png' });
+await page.click('.pause-list button:has-text("Resume")');
+check(await page.evaluate(() => !window.__game.paused), 'Resume closes it');
 
 // cameras
 for (let k = 1; k <= 3; k++) { await page.keyboard.press('KeyC'); await page.waitForTimeout(500); await page.screenshot({ path: `test-results/5-camera-${k}.png` }); }
