@@ -42,6 +42,12 @@ import { Menu, type MenuGame } from './ui/menu';
 import { TouchControls, touchDevice } from './ui/touch';
 import { settings, setup, saveSettings, type SessionMode, type RaceSetup } from './core/settings';
 import type { PartyClient } from './net/party';
+import { Damage, DAMAGE } from './sim/damage';
+import { Tow, type TowEvent } from './sim/tow';
+import { BodyDents } from './render/damage';
+import { DamageFx } from './render/damageFx';
+import { TowScene } from './render/towScene';
+import { DamageHud } from './ui/damageHud';
 
 const TIMES: TimeOfDay[] = ['noon', 'sunset', 'night', 'morning'];
 const TRACK_NAME = 'Roadster Circuit';
@@ -74,7 +80,7 @@ const snap = (): Snap => ({ p: new THREE.Vector3(), q: new THREE.Quaternion() })
 const css = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`;
 
 /** a rival's car on screen: model, thruster effects, skid marks and interpolation snapshots */
-interface RivalView { e: Entrant; model: BodyModel; fx: JetFx; skids: SkidMarks; tag: NameTag; prev: Snap; curr: Snap; hop: boolean }
+interface RivalView { e: Entrant; model: BodyModel; fx: JetFx; skids: SkidMarks; tag: NameTag; prev: Snap; curr: Snap; hop: boolean; damage: Damage; dents: BodyDents; resets: number }
 
 export interface GameOptions { quality?: Quality; safe?: boolean; tod?: TimeOfDay; autodrive?: boolean }
 
@@ -142,6 +148,17 @@ export class Game implements PartyGame, MenuGame {
   private lastPos = 0;
   private lastRaceLap = 0;
   private washedPrev = false;
+  /** crash damage: the zones (sim), the dents on the model, the debris, and the meter */
+  readonly damage = new Damage();
+  private dents!: BodyDents;
+  private damageFx = new DamageFx();
+  private damageHud!: DamageHud;
+  /** seconds since the car was wrecked (the tow comes once it has stopped) */
+  private wreckT = 0;
+  /** the flying tow, while it's on its way, carrying the car or flying off */
+  tow: Tow | null = null;
+  private towScene!: TowScene;
+  private towEvents: TowEvent[] = [];
 
   phase: Phase = 'title';
   paused = false;
@@ -198,7 +215,11 @@ export class Game implements PartyGame, MenuGame {
     this.gates = new Gates(this.track);
     this.scene.add(this.gates.group);
     this.scene.add(this.trackScene.group, this.canisterScene.group, this.skids.mesh, this.vapour.points);
+    this.towScene = new TowScene(this.roadModel, this.vapour, quality);
+    this.scene.add(this.damageFx.group, this.towScene.group);
     if (quality === 'high' || quality === 'ultra') this.probe = new ReflectionProbe(quality === 'ultra' ? 256 : 128, quality === 'ultra' ? 2 : 4);
+    if (this.probe) this.towScene.setReflections(this.probe.texture);
+    this.towScene.setNight(this.env.preset.night);
     this.roadModel.onSpoiler = up => { if (this.phase === 'driving') this.hud.message(up ? 'Spoiler up' : 'Spoiler down', 1); };
 
     this.cls = ownsCar(setup.cls) ? setup.cls : 'rental';
@@ -215,6 +236,7 @@ export class Game implements PartyGame, MenuGame {
 
     this.hud = new Hud(this.track);
     this.hud.markAir(this.canisters.list);
+    this.damageHud = new DamageHud(this.hud.root);
     this.hud.setLights(-1);
     this.settle();
     this.remote = new RemoteCars(this.roadModel, this.car.wheels.reduce((a, w) => a + w.suspension, 0) / 4);
@@ -240,7 +262,9 @@ export class Game implements PartyGame, MenuGame {
       this.views.set(cls, v);
     }
     this.scene.remove(this.model.root);
+    this.dents?.repair();
     this.model = v.model; this.jetFx = v.fx;
+    this.dents = new BodyDents(this.model);
     this.setPaint(paint);
     this.scene.add(this.model.root);
   }
@@ -249,6 +273,7 @@ export class Game implements PartyGame, MenuGame {
   setClass(cls: ClassId) {
     if (cls === this.cls) return;
     this.dropRace();
+    this.endTow();
     this.car.dispose();
     this.cls = cls;
     const g = this.track.pointAt(GRID_S, 0);
@@ -270,6 +295,8 @@ export class Game implements PartyGame, MenuGame {
     const s = this.current, w = this.weekend;
     const grid = w?.stage === 'race' ? w.quali?.map(r => r.name) : undefined;
     this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: s.opponents, laps: s.laps, difficulty: s.difficulty, cls: this.cls, grid });
+    // the rivals are copies of the player's model, so copy it as new
+    this.repairCar();
     for (const e of this.race.rivals) {
       // copies of the player's model: building one from scratch takes seconds
       const model = cloneModel(this.model);
@@ -278,7 +305,7 @@ export class Game implements PartyGame, MenuGame {
       if (model instanceof OpenWheelModel) model.setNumber(e.number);
       model.setNight(this.env.preset.night);
       const tag = new NameTag(e.name, css(PAINTS[e.paint].color));
-      const view: RivalView = { e, model, fx: new JetFx(model.root, this.vapour), skids: new SkidMarks(), tag, prev: snap(), curr: snap(), hop: false };
+      const view: RivalView = { e, model, fx: new JetFx(model.root, this.vapour), skids: new SkidMarks(), tag, prev: snap(), curr: snap(), hop: false, damage: new Damage(), dents: new BodyDents(model), resets: 0 };
       this.scene.add(model.root, view.skids.mesh, tag.sprite);
       this.rivals.push(view);
     }
@@ -298,6 +325,7 @@ export class Game implements PartyGame, MenuGame {
     this.env = new Environment(this.scene, this.renderer.gl, tod, this.renderer.quality);
     this.renderer.setBloom(this.env.preset.night ? 0.8 : 0.12, this.env.preset.night ? 0.85 : 1.6);
     for (const v of this.views.values()) v.model.setNight(this.env.preset.night);
+    this.towScene?.setNight(this.env.preset.night);
     this.vapour.setNight(this.env.preset.night);
     for (const r of this.rivals ?? []) r.model.setNight(this.env.preset.night);
     this.remote?.setNight(this.env.preset.night);
@@ -379,7 +407,8 @@ export class Game implements PartyGame, MenuGame {
     // fresh tyres for everyone; the air temperature sets how fast they cool
     for (const c of [this.car, ...this.rivals.map(r => r.e.car)]) { c.ambient = AMBIENT[TIMES[this.todIndex]]; c.resetTyres(); }
     this.skids.clear(); this.vapour.clear();
-    for (const r of this.rivals) r.skids.clear();
+    for (const r of this.rivals) { r.skids.clear(); r.damage.repair(); r.dents.repair(); }
+    this.endTow(); this.repairCar(); this.damageFx.clear();
     this.pilot = this.autodrive ? new Autopilot(this.track) : null;
     this.finishT = 0; this.resultsShown = false; this.standingsShown = false; this.lastPos = 0; this.lastRaceLap = 0; this.lapTimes = [];
     this.hud.results.classList.add('hidden');
@@ -758,7 +787,112 @@ export class Game implements PartyGame, MenuGame {
     into.p.set(t.x, t.y, t.z); into.q.set(r.x, r.y, r.z, r.w);
   }
 
+  // ---- crash damage and the flying tow
+
+  /** good as new: no damage, no dents */
+  private repairCar() {
+    this.damage.repair(); this.dents?.repair(); this.wreckT = 0;
+    this.damageHud?.update(this.damage);
+  }
+
+  /** the tow comes for the car: it's dropped back on the road a little behind where it is now */
+  callTow(why: string) {
+    const t = this.car.body.translation(), r = this.car.body.rotation();
+    const near = this.track.nearest(t.x, t.z, this.hint);
+    const s = near.s - 5;
+    this.tow = new Tow(this.track, { p: new THREE.Vector3(t.x, t.y, t.z), q: new THREE.Quaternion(r.x, r.y, r.z, r.w) }, s, Math.max(-3, Math.min(3, near.lateral)), this.car.spec.comHeight);
+    this.towScene.start(this.tow);
+    this.flipT = 0; this.wreckT = 0;
+    this.hud.message(why, 2.2);
+    if (this.test && !this.test.over && this.phase === 'driving') this.testOver(null, 'The car had to be towed back to the road. Try again!');
+  }
+
+  /** one physics step of the tow; true while it holds the car */
+  private stepTow(dt: number) {
+    const tow = this.tow!;
+    const was = tow.holding;
+    tow.step(dt);
+    this.towEvents.push(...tow.takeEvents());
+    const b = this.car.body;
+    if (tow.holding) {
+      const p = b.translation();
+      b.setTranslation(tow.carPos, true);
+      b.setRotation(tow.carQuat, true);
+      b.setLinvel({ x: (tow.carPos.x - p.x) / dt, y: (tow.carPos.y - p.y) / dt, z: (tow.carPos.z - p.z) / dt }, true);
+      b.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      this.car.speed = 0; this.car.powerKw = 0;
+      return true;
+    }
+    if (was) {
+      // set down on the road, repaired and ready to go
+      const g = this.track.pointAt(tow.s, tow.lateral);
+      this.car.place(g.x, g.y, g.z, this.track.headingAt(tow.s));
+      this.jets.reset();
+      this.repairCar();
+      const near = this.track.nearest(g.x, g.z, this.hint);
+      this.hint = near.i; this.prevS = near.s;
+    }
+    return false;
+  }
+
+  /** call off the tow (a new session, or a reset) */
+  private endTow() {
+    this.tow = null;
+    this.towEvents.length = 0;
+    this.towScene?.stop();
+  }
+
+  /** crash damage for this frame: the player's hits dent the car, throw debris and fill the
+   *  meter; the rivals' hits dent theirs */
+  private crashFrame(dt: number, jetKick: boolean) {
+    const cars = [{ car: this.car, damage: this.damage, dents: this.dents, root: this.model.root, paint: this.model.paint.color, you: true }];
+    for (const r of this.rivals) {
+      // a rival put back on the road by the race is fixed up too
+      if (r.e.resets !== r.resets) { r.resets = r.e.resets; r.damage.repair(); r.dents.repair(); }
+      cars.push({ car: r.e.car, damage: r.damage, dents: r.dents, root: r.model.root, paint: r.model.paint.color, you: false });
+    }
+    const at = new THREE.Vector3(), out = new THREE.Vector3();
+    for (const c of cars) {
+      // the player's impact is also read (and cleared) by the camera shake below
+      const impact = c.car.impact;
+      if (!c.you) c.car.takeImpact();
+      if (impact > DAMAGE.threshold && !(c.you && (jetKick || this.tow?.holding)) && this.phase !== 'title') {
+        const hit = c.damage.hit(c.car, c.car.impactVec);
+        if (hit) {
+          c.dents.add(hit);
+          c.dents.contact(hit, at);
+          at.applyMatrix4(c.root.matrixWorld);
+          const { fwd, right } = c.car.axes();
+          out.set(-right.x * hit.dir.x + fwd.x * hit.dir.z, 0, -right.z * hit.dir.x + fwd.z * hit.dir.z).normalize();
+          const t = c.car.body.translation();
+          this.damageFx.crash(at, out, c.car.body.linvel(), hit.amount, c.paint, t.y - c.car.spec.comHeight);
+          if (c.you && hit.amount > 0.25) this.hud.message(c.damage.wrecked ? 'WRECKED!' : 'Big hit!', 1.2);
+        }
+      }
+      c.dents.update();
+      c.root.updateMatrixWorld();
+      this.damageFx.smokeFrom(c.root, c.damage.worst, c.car.body.linvel(), dt);
+    }
+    this.damageFx.update(dt, this.rig.cam, this.renderer.gl.domElement.height);
+    this.damageHud.update(this.damage);
+  }
+
+  /** the tow's moments that need a message or a sound */
+  private towFrame(dt: number) {
+    for (const ev of this.towEvents) {
+      if (ev === 'hooked') this.hud.message('Hooked!', 1);
+      else if (ev === 'release') { this.hud.message('Back on track!', 1.6); this.rig.reset(); this.skids.clear(); this.snapshot(this.prev); this.snapshot(this.curr); }
+      else if (ev === 'ring') audio.hop();
+      else if (ev === 'gone') { this.tow = null; this.towScene.stop(); }
+    }
+    this.towEvents.length = 0;
+    const tp = this.tow?.pos;
+    const ground = tp ? this.track.pointAt(this.track.nearest(tp.x, tp.z).s, 0).y : 0;
+    this.towScene.update(dt, this.rig.cam, this.renderer.gl.domElement.height, ground);
+  }
+
   resetCar() {
+    this.endTow();
     const near = this.track.nearest(this.curr.p.x, this.curr.p.z, this.hint);
     const s = near.s - 5;
     const p = this.track.pointAt(s, Math.max(-3, Math.min(3, near.lateral)));
@@ -778,8 +912,7 @@ export class Game implements PartyGame, MenuGame {
     if (input.consume('time')) { this.todIndex = (this.todIndex + 1) % TIMES.length; this.buildEnvironment(); this.hud.message(`Time of day: ${TIMES[this.todIndex]}`, 1.4); }
     if (input.consume('mute')) { settings.sound = !audio.toggleMute(); saveSettings(); this.hud.message(settings.sound ? 'Sound on' : 'Sound off', 1.2); }
     if (input.consume('reset') && this.phase === 'driving' && !this.paused) {
-      this.resetCar(); this.hud.message('Reset', 1);
-      if (this.test && !this.test.over) this.testOver(null, 'The car was reset, so the test stopped. Try again!');
+      if (!this.tow?.holding) this.callTow('Tow on the way!');
     }
     for (const [a, h] of [['assist1', 'easy'], ['assist2', 'medium'], ['assist3', 'off']] as const) {
       if (input.consume(a)) { this.setHelp(h); settings.help = h; saveSettings(); this.hud.message(`Driving help: ${HELP_LABEL[h]}`, 1.4); }
@@ -797,14 +930,19 @@ export class Game implements PartyGame, MenuGame {
     const moving = this.phase === 'driving' || this.phase === 'finished';
     if (this.pilot && moving) inp = { ...this.pilot.drive(this.car, near.i, near.s, dt), lookBack: false, boost: false, hop: false, hover: false, side: 0, sidePress: 0, pitch: 0 };
     if (!moving) inp = { steer: 0, throttle: 0, brake: 0, handbrake: true, lookBack: false, boost: false, hop: false, hover: false, side: 0, sidePress: 0, pitch: 0 };
-    const assisted = applyDrivingHelp(this.help, inp, this.car);
-    this.car.step(assisted);
-    // in the air the raw sticks drive the attitude jets (the driving help only shapes steering)
-    // no thrusters in a license test: it's about the driving
-    const jetsOn = !this.test;
-    this.jets.step(this.car, inp, { boost: jetsOn && inp.boost, hop: jetsOn && inp.hop, airRoll: jetsOn && inp.handbrake, pitch: inp.pitch,
-      hover: jetsOn && inp.hover, side: jetsOn ? inp.side : 0, sidePress: jetsOn ? inp.sidePress : 0 }, dt, this.help !== 'off');
-    this.frameEvents.push(...this.jets.events);
+    // while the tow has the car, it goes where the tow takes it
+    const held = this.tow ? this.stepTow(dt) : false;
+    if (!held) {
+      this.damage.applyTo(this.car);
+      const assisted = applyDrivingHelp(this.help, inp, this.car);
+      this.car.step(assisted);
+      // in the air the raw sticks drive the attitude jets (the driving help only shapes steering)
+      // no thrusters in a license test: it's about the driving
+      const jetsOn = !this.test;
+      this.jets.step(this.car, inp, { boost: jetsOn && inp.boost, hop: jetsOn && inp.hop, airRoll: jetsOn && inp.handbrake, pitch: inp.pitch,
+        hover: jetsOn && inp.hover, side: jetsOn ? inp.side : 0, sidePress: jetsOn ? inp.sidePress : 0 }, dt, this.help !== 'off');
+      this.frameEvents.push(...this.jets.events);
+    }
     if (this.jets.hopped) this.frameHop = true;
     this.race?.stepRivals(dt);
     this.world.step();
@@ -856,11 +994,12 @@ export class Game implements PartyGame, MenuGame {
     this.prevS = s;
     if (this.test) this.stepTest(near.lateral, s);
 
-    // flipped or far off the map: put the car back
+    // flipped, wrecked or far off the map: the tow comes to put the car back
+    if (held) return;
     if (this.car.axes().up.y < 0.25 && Math.abs(this.car.speed) < 4) this.flipT += dt; else this.flipT = 0;
-    if (this.flipT > 1.5 || pos.y < -50 || near.dist > this.track.wallOffset + 40) {
-      this.flipT = 0; this.resetCar();
-      if (this.test && !this.test.over && this.phase === 'driving') this.testOver(null, 'The car had to be put back on the road. Try again!');
+    if (this.damage.wrecked) this.wreckT += dt;
+    if (this.flipT > 1.5 || pos.y < -50 || near.dist > this.track.wallOffset + 40 || this.wreckT > 2.5 || (this.wreckT > 0.8 && Math.abs(this.car.speed) < 3)) {
+      this.callTow(this.damage.wrecked ? 'Wrecked! Tow on the way' : this.flipT > 1.5 ? 'Tow on the way!' : 'Lost? Tow on the way!');
     }
   }
 
@@ -916,6 +1055,7 @@ export class Game implements PartyGame, MenuGame {
     if (this.frameHop || this.frameEvents.includes('dodge')) audio.hop();
     if (this.frameAir > 0) { audio.pickup(); this.hud.airGained(this.frameAir); }
     for (const ev of this.frameEvents) { const m = JET_MESSAGES[ev]; if (m) this.hud.message(m[0], m[1]); }
+    const jetKick = this.frameEvents.some(e => e === 'dodge' || e === 'launch');
     this.frameEvents.length = 0; this.frameHop = false; this.frameAir = 0;
     this.rig.boost = this.jets.boosting ? 1 : 0;
     let nearBoost = 0;
@@ -932,6 +1072,7 @@ export class Game implements PartyGame, MenuGame {
       // rivals' jets are heard when they boost close by
       if (r.e.jets.boosting) nearBoost = Math.max(nearBoost, 1 - camDist / 35);
     }
+    this.crashFrame(dt, jetKick);
     const washed = (this.race?.player.washed ?? 0) > 0;
     if (washed && !this.washedPrev) this.hud.message('Jet wash!', 0.8);
     this.washedPrev = washed;
@@ -952,6 +1093,8 @@ export class Game implements PartyGame, MenuGame {
       this.rig.cam.position.set(focus.x + Math.sin(a) * r, focus.y + 1.3, focus.z + Math.cos(a) * r);
       this.rig.cam.lookAt(focus.x, focus.y + 0.2, focus.z);
     } else this.rig.update(focus, dt, this.inp.lookBack);
+    if (this.tow?.holding) this.towScene.camera(this.rig.cam, dt);
+    this.towFrame(dt);
     if (this.debugCam) { this.rig.cam.position.set(...this.debugCam.pos); this.rig.cam.lookAt(...this.debugCam.target); }
     this.env.follow(focus.x, focus.y, focus.z);
     const friends = this.party && this.netRace ? this.netFrame(dt) : [];
@@ -960,7 +1103,9 @@ export class Game implements PartyGame, MenuGame {
 
     const slip = Math.max(...this.car.wheels.map(w => w.slip));
     audio.update(this.car.speed, Math.max(-1, Math.min(1, this.car.powerKw / 300)), slip, this.kerb, this.paused || this.phase === 'title');
-    audio.jets(Math.max(this.jets.boosting ? 1 : 0, nearBoost * 0.45), this.jets.attitude, this.jets.tank, this.paused || this.phase === 'title');
+    // the tow car's hover jets are heard too, louder the closer it is
+    const towJets = this.tow && !this.tow.done ? 0.8 * Math.max(0, 1 - this.tow.pos.distanceTo(this.rig.cam.position) / 45) : 0;
+    audio.jets(Math.max(this.jets.boosting ? 1 : 0, nearBoost * 0.45, towJets), this.jets.attitude, this.jets.tank, this.paused || this.phase === 'title');
     this.hud.setAir(this.jets.tank, this.jets.boosting, this.jets.hopCooldown <= 0 && this.jets.tank >= 0.1, dt);
     // the gear number on a gearbox car; a one-speed EV shows D, and R when backing up
     const gear = this.car.speed < -0.5 ? 'R' : this.car.gear ? String(this.car.gear) : 'D';

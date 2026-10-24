@@ -18,6 +18,9 @@ import { newRun, scoreRound, standings, isOver } from '../src/sim/championship';
 import { LICENSES, medalFor, medalTime } from '../src/sim/licenses';
 import { referenceTime, referenceLap } from './license-times';
 import { LAP_REF, qualifyingOrder } from '../src/sim/weekend';
+import { Damage, DAMAGE } from '../src/sim/damage';
+import { Tow, TOW } from '../src/sim/tow';
+import * as THREE from 'three';
 
 await initPhysics();
 // the bots roll dice (mistakes, passing, boosting): seed them so every run of this test is the same
@@ -347,6 +350,60 @@ function runRace(opts: RaceOptions) {
   const race = new Race(track, world, new Canisters(track), car, new Jets(), { opponents: 5, grid: q.map(r => r.name) });
   check(race.entrants.map(e => e.name).join() === q.map(r => r.name).join(), 'the race grid follows the qualifying order');
   world.free();
+}
+
+// ---- crash damage: hits into the barrier, and the flying tow putting the car back on the road
+{
+  console.log('crash damage:');
+  const track = new Track(), world = buildWorld(track, new Terrain(track));
+  const s = 420;
+  /** drive into the right-hand barrier at `v` m/s, `angle` (rad) off the track direction */
+  const crash = (v: number, angle: number, from = 9, steps = 240) => {
+    const head = track.headingAt(s), a = track.pointAt(s, from);
+    const right = track.pointAt(s, 10);
+    const toWall = Math.atan2(right.x - a.x, right.z - a.z);
+    let d = toWall - head; d = Math.atan2(Math.sin(d), Math.cos(d));
+    const h = head + d * (angle / (Math.PI / 2));
+    const car = new Car(world, a.x, a.y, a.z, h);
+    for (let k = 0; k < 60; k++) { car.step({ steer: 0, throttle: 0, brake: 0, handbrake: true }); world.step(); }
+    car.body.setLinvel({ x: Math.sin(h) * v, y: 0, z: Math.cos(h) * v }, true);
+    (car as unknown as { prevVel: object }).prevVel = { x: Math.sin(h) * v, y: 0, z: Math.cos(h) * v };
+    const dmg = new Damage();
+    for (let k = 0; k < steps; k++) {
+      car.step({ steer: 0, throttle: 0, brake: 0, handbrake: false }); world.step();
+      if (car.impact > DAMAGE.threshold) dmg.hit(car, car.impactVec);
+      car.takeImpact();
+    }
+    car.dispose();
+    return dmg;
+  };
+  const big = crash(26, Math.PI / 2), mid = crash(14, Math.PI / 2), scrape = crash(25, 0.12, 13, 150);
+  console.log(`  head-on 94 km/h: front ${big.zones.front.toFixed(2)}; 50 km/h: front ${mid.zones.front.toFixed(2)}, power ${(mid.powerMul * 100).toFixed(0)}%; glancing scrape: worst ${scrape.worst.toFixed(2)}`);
+  check(big.wrecked, 'a head-on hit at 94 km/h wrecks the car');
+  check(!mid.wrecked && mid.zones.front > 0.2 && mid.powerMul < 1, 'a head-on hit at 50 km/h dents the front and costs power');
+  check(mid.zones.rear === 0, 'a front hit leaves the rear alone');
+  check(scrape.worst < 0.15, 'a glancing scrape along the barrier barely marks the car');
+
+  // the tow: from a car on its roof off the road to the road, facing the right way
+  const carAt = { p: new THREE.Vector3(...(['x', 'y', 'z'] as const).map(k => track.pointAt(600, 12)[k])), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1, Math.PI)) };
+  carAt.p.y += 0.5;
+  const tow = new Tow(track, carAt, 595, 3, CAR.comHeight);
+  const seen = new Set<string>();
+  let t = 0, held = 0, lowest = Infinity, released: THREE.Vector3 | null = null;
+  while (!tow.done && t < 40) {
+    tow.step(dt); t += dt;
+    for (const e of tow.takeEvents()) { seen.add(e); if (e === 'release') released = tow.carPos.clone(); }
+    if (tow.holding) { held += dt; lowest = Math.min(lowest, tow.pos.y - tow.carPos.y); }
+  }
+  const road = track.pointAt(595, 3);
+  console.log(`  tow: holds the car ${held.toFixed(1)} s, gone after ${t.toFixed(1)} s, events ${[...seen].join(' ')}`);
+  check(tow.done && t < 25, 'the tow finishes and flies away');
+  check(['hooked', 'release', 'ring', 'gone'].every(e => seen.has(e)), 'the tow hooks, drops the car, flies through the rings and leaves');
+  check(tow.rings.length === TOW.rings.length && tow.rings.every(r => r.passed), 'it flies through every ring of fire');
+  check(!!released && Math.hypot(released.x - road.x, released.z - road.z) < 0.5 && Math.abs(released.y - road.y - CAR.comHeight) < 0.3, 'the car is set down on the road');
+  check(lowest > TOW.cable, 'the tow car stays above the car it carries');
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(tow.carQuat);
+  check(Math.abs(Math.atan2(fwd.x, fwd.z) - track.headingAt(595)) < 0.05 || Math.abs(Math.abs(Math.atan2(fwd.x, fwd.z) - track.headingAt(595)) - 2 * Math.PI) < 0.05, 'the car faces along the track when it lands');
 }
 
 process.exit(failed ? 1 : 0);

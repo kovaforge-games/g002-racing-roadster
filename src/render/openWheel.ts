@@ -211,6 +211,9 @@ export class OpenWheelModel {
     this.root.add(shadow);
   }
 
+  /** the body shell, built in the ground frame: crash dents go here (render/damage.ts) */
+  get bodyShell() { return this.shell; }
+
   get paintName() { return PAINTS[this.paintIndex].name; }
 
   nextPaint() {
