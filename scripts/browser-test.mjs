@@ -1,5 +1,5 @@
 // Drives the real game in headless Chromium: home screen, race setup, countdown, keyboard driving,
-// the race field, the pause menu, boost and hop, the iPad controls, and the autopilot demo. Saves screenshots to test-results/ and fails on page errors or if the car
+// the race field, the pause menu, boost and hop, the iPad controls, the autopilot demo, and the career modes (licenses, race weekend, a single-seater race). Saves screenshots to test-results/ and fails on page errors or if the car
 // doesn't move.   node scripts/browser-test.mjs [url]   (start `npm run dev` or `npm run preview` first)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -47,7 +47,10 @@ await page.keyboard.up('KeyW');
 const s1 = await state();
 console.log(`after launch: ${(s1.speed * 3.6).toFixed(0)} km/h, moved ${Math.hypot(s1.x - s0.x, s1.z - s0.z).toFixed(0)} m`);
 check(s1.speed > 15, 'car accelerates under keyboard throttle');
-await page.keyboard.down('KeyS'); await page.waitForTimeout(6000); await page.keyboard.up('KeyS');
+// software rendering runs the game slower than real time, so wait for the slowdown rather than a fixed time
+await page.keyboard.down('KeyS');
+await page.waitForFunction(v => window.__game.car.speed < v, s1.speed - 10, { timeout: 30000 }).catch(() => {});
+await page.keyboard.up('KeyS');
 check((await state()).speed < s1.speed - 10, 'car brakes');
 
 // race and thrusters: five rivals on the grid, boost drains the tank, a hop costs air
@@ -111,6 +114,53 @@ await page.close();
   await tp.mouse.up();
   check(await tp.evaluate(() => document.querySelectorAll('.pedal-row .tyre').length === 4 && /\d/.test(document.querySelector('.rd-kmh').textContent)), 'iPad: four tyres and the speed readout');
   await tp.close();
+}
+
+// career: locked cars and championships, a license test, a race weekend, and a single-seater race
+{
+  const cp = await browser.newPage({ viewport: { width: 1100, height: 620 } });
+  cp.on('pageerror', e => errors.push(e.message));
+  await cp.goto(url + quality, { waitUntil: 'load' });
+  await cp.waitForFunction(() => window.__game, null, { timeout: 90000 });
+  await cp.click('.tile-championship', { timeout: 90000 });
+  check(await cp.locator('.champ .locked-note').count() === 2, 'championship: both locked until you have the cars');
+  await cp.click('.card button:has-text("Back")');
+  await cp.click('.tile-licenses');
+  check(await cp.locator('.test-btn:not([disabled])').count() === 5, 'licenses: the five National B tests are open, the rest locked');
+  await cp.click('.test-btn >> nth=0'); await cp.click('button.start');
+  await cp.waitForFunction(() => window.__game.test && window.__game.cls === '0x1.5' && !document.querySelector('.testpanel').classList.contains('hidden'), null, { timeout: 30000 });
+  check(true, 'license test: in the 0x1.5 with the test clock showing');
+  await cp.waitForFunction(() => window.__game.phase === 'driving', null, { timeout: 60000 });
+  await cp.keyboard.press('KeyR');
+  check(await cp.waitForFunction(() => /TEST FAILED/.test(document.querySelector('.overlay.results')?.textContent ?? ''), null, { timeout: 10000 }).then(() => true, () => false), 'license test: a reset fails the test');
+  await cp.screenshot({ path: 'test-results/9-license.png' });
+  await cp.click('.results button:has-text("Licenses")');
+  await cp.click('.card button:has-text("Back")');
+  await cp.click('.tile-weekend');
+  await cp.click('button.start');
+  await cp.waitForFunction(() => window.__game.weekend?.stage === 'practice' && window.__game.phase === 'driving', null, { timeout: 30000 });
+  await cp.evaluate(() => { window.__game.lapTimes.push(1); window.__game.finishSession(); });
+  await cp.click('.results button:has-text("Go to qualifying")');
+  await cp.waitForFunction(() => window.__game.weekend?.stage === 'qualifying', null, { timeout: 30000 });
+  await cp.evaluate(() => { window.__game.lapTimes.push(1); window.__game.finishSession(); });
+  check(await cp.locator('.overlay.results h2:has-text("POLE")').count() === 1, 'weekend: a quick qualifying lap takes pole');
+  await cp.click('.results button:has-text("Race")');
+  check(await cp.waitForFunction(() => window.__game.race?.entrants[0].name === 'You', null, { timeout: 30000 }).then(() => true, () => false), 'weekend: the race starts from pole');
+  await cp.close();
+
+  const up = await browser.newPage({ viewport: { width: 1100, height: 620 } });
+  up.on('pageerror', e => errors.push(e.message));
+  await up.goto(url + quality + '&unlock', { waitUntil: 'load' });
+  await up.waitForFunction(() => window.__game, null, { timeout: 90000 });
+  await up.click('.tile-quick', { timeout: 90000 });
+  await up.click('button.seg-btn:has-text("0x3.5")');
+  await up.click('button.start');
+  await up.waitForFunction(() => window.__game.phase === 'driving', null, { timeout: 90000 });
+  await up.keyboard.down('ArrowUp');
+  await up.waitForFunction(() => window.__game.car.gear >= 2, null, { timeout: 60000 }).catch(() => {});
+  check(await up.evaluate(() => window.__game.race.entrants.every(e => e.car.spec.gears === 8) && window.__game.car.gear >= 2), '0x3.5 race: every car is a 0x3.5 and the gearbox shifts');
+  await up.screenshot({ path: 'test-results/10-0x3.5.png' });
+  await up.close();
 }
 
 check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);

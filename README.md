@@ -16,16 +16,18 @@ npm run dev            # http://localhost:5173
 npm run party-server   # in a second terminal, for party races (Vite passes /ws through to it)
 ```
 
-**Showroom:** open `?showroom` or `#showroom` (or use the link on the home screen) to see the car on a turntable in a studio. Drag to look around, scroll to zoom, and press P for paint, S for the spoiler, N for the lights and Enter to drive.
+**Showroom:** open `?showroom` or `#showroom` (or use the link on the home screen) to see the car on a turntable in a studio. Drag to look around, scroll to zoom, and press P for paint, S for the spoiler, N for the lights and Enter to drive. `?showroom&car=0x2.5` shows another class.
 
 Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic graphics preset, `?tod=morning|noon|sunset|night` picks the time of day, `?autodrive` lets the autopilot drive (a demo lap), and `?safe` starts in safe graphics.
 
 ## Racing
 
-The home screen lists every mode: **Quick Race**, **Race Weekend**, **Championship**, **Licenses**, **Time Trial**, **Practice**, **Replays** and **Settings**, with **Make party** and **Join party** below. Race Weekend, Championship, Licenses and Replays are still being built and say what's coming. Arrow keys move between the buttons and Esc goes back.
+The home screen lists every mode: **Quick Race**, **Race Weekend**, **Championship**, **Licenses**, **Time Trial**, **Practice**, **Replays** and **Settings**, with **Make party** and **Join party** below. Replays is still being built and says what's coming. Arrow keys move between the buttons and Esc goes back.
 
-- **Quick Race:** pick the time of day (morning, noon, sunset or night), the difficulty (Newbie, Beginner, Club, Expert or Pro), how many opponents (1 to 11) and how many laps (1 to 10), then press Start. You start towards the back of a staggered grid (fifth of six with 5 opponents). The standings panel (top right) shows your position, the lap and the gaps, and the bots appear as coloured dots on the map. The race setup is remembered.
-- **Time Trial:** alone from a standing start for the laps you pick; the results show every lap and your record for that number of laps.
+- **Quick Race:** pick the car, the time of day (morning, noon, sunset or night), the difficulty (Newbie, Beginner, Club, Expert or Pro), how many opponents (1 to 11) and how many laps (1 to 10), then press Start. You start towards the back of a staggered grid (fifth of six with 5 opponents). The standings panel (top right) shows your position, the lap and the gaps, and the bots appear as coloured dots on the map. The race setup is remembered.
+- **Race Weekend:** the same setup, then free practice (drive as long as you like, then pause and pick **Go to qualifying**), qualifying (your best of 2 laps sets your grid slot against the bots' times) and the race from that grid.
+- **Championship** and **Licenses:** see [Classes and career](#classes-and-career).
+- **Time Trial:** alone from a standing start for the laps you pick; the results show every lap and your record for that car and number of laps.
 - **Practice:** drive alone with no countdown, as many laps as you like.
 
 Races and time trials start with a **5 second countdown**: a red light comes on each second as the number counts down from 5 to 1, then the lights go out. In a session the **pause button** (top centre, or Esc) opens the pause menu: **Resume**, **Restart**, **Finish session** (ends it now; drivers still racing get an estimated time from their pace), **Settings** and **Quit to menu**. After the flag the autopilot takes a cool-down lap while the results come in, with **Race again** and **Menu**.
@@ -33,6 +35,25 @@ Races and time trials start with a **5 second countdown**: a red light comes on 
 **Settings** (from the home screen or the pause menu, saved in the browser): driving help, camera, graphics preset (applies on reload) and sound.
 
 The bots are Lionelinni Bannanini, Gunvini Uvinini, Ramanini Banannini, Arvinini Chegenini, Jakobini Chananini, Joaquinini Borquezini, Orionini Siuinini, Jakeinnini Bananinni, Asherinini Basketballini, Danielini Caperrinini and Nico the Bird (bots 1 to 11; a race with fewer opponents takes the first ones). Each has their own pace, aggression and consistency, and the difficulty scales all three: Newbie bots are about 15% slower than Pro bots and make far more mistakes. They are g001's bot drivers adapted for this car: they follow a racing line at a speed set by the corners ahead, pass and follow in traffic, learn where they can push harder each lap, make the odd mistake, and recover from spins. They use the thrusters too: boost on the straights, hop a slow car in their lane, and swing through the air canisters when their tank runs low. Bots well behind you push a little harder and ones far ahead ease off (more on the easier levels), so the racing stays close. Cars collide with each other, and tailgating a boosting car is a bad idea: its jet wash shoves you back. Name tags over the bots show their position, and you hear their jets when they boost close by.
+
+## Classes and career
+
+There are four cars. Pick one in the **Car** row before a race; a locked one says how to earn it.
+
+| Class | What it is | How you get it |
+|---|---|---|
+| **Rental** | The road car everyone starts with: gentle power, soft grip, very forgiving. 210 kW, 200 km/h. | Yours from the start |
+| **0x1.5** | The first open-wheel single-seater: light and nimble, 6-speed gearbox. 300 kW, 260 km/h. | Earn the National B license |
+| **0x2.5** | Faster and stickier, bigger wing, 7 gears. 430 kW, 300 km/h. | Top 3 in the 0x1.5 Championship |
+| **0x3.5** | The fastest car in the game: huge downforce, 8 gears. 600 kW, 340 km/h. | Top 3 in the 0x2.5 Championship |
+
+The single-seaters have a sequential gearbox (the wheel shows the gear number), downforce that adds grip as the speed rises, and their own 3D model with the driver, halo and wings. Each car carries a race number: the bots carry their own (bot 1 to bot 11), you are number 12. Every rival is a copy of your class's model in its own paint and number.
+
+**Licenses:** National B (in the 0x1.5), National A (in the 0x2.5) and International A (in the 0x3.5). Each has five tests: drive from gate **A** to gate **B** from a standing start inside the target times. The briefing gives a tip and the gold, silver and bronze times, and a panel shows the clock as you drive. Leaving the road, going the wrong way or resetting fails the test, and the thrusters are off. Silver or better in all five earns the license and opens the next one; National B also gives you the 0x1.5. The targets come from a reference driver (the bots' line and braking at full pace, without mistakes): gold is 2% slower than it, silver 7% and bronze 15%.
+
+**Championship:** the 0x1.5 Championship (3 races) and the 0x2.5 Championship (4 races), each against 7 bots at the difficulty you pick. Points go 25, 18, 15, 12, 10, 8, 6, 4, 2, 1; ties go to more wins. After each race, **Standings** shows the table; a championship in progress is saved, so you can **Continue** it later. Finish in the top 3 overall to earn the next car.
+
+Progress (cars, medals, licenses, championships) is saved in the browser. Add `?unlock` to the address to open everything for testing.
 
 ## Controls
 
@@ -123,6 +144,10 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Home screen, race setup, settings, pause menu; saved settings | `src/ui/menu.ts`, `src/core/settings.ts` |
 | Touch controls: pedals, slider/buttons/tilt steering, readout and tyres | `src/ui/touch.ts` |
 | Racing line and speed profile; AI rivals; the race (grid, laps, positions) | `src/sim/racingLine.ts`, `rival.ts`, `race.ts` |
+| Race classes; championships; licenses and their targets; race weekend qualifying | `src/sim/classes.ts`, `championship.ts`, `licenses.ts`, `weekend.ts` |
+| Single-seater model; the model for each class; license gates | `src/render/openWheel.ts`, `models.ts`, `gates.ts` |
+| Saved career progress (cars, medals, licenses, championships) | `src/core/progress.ts` |
+| Reference times for the license targets and the bots' qualifying laps | `scripts/license-times.ts` |
 | Game loop (120 Hz physics, interpolated rendering), sessions, countdown, laps, party races | `src/game.ts` |
 | Party server: lobby, codes, start lights, state relay, results | `server/party-core.ts` (shared), `worker/index.ts` (Durable Object), `server/server.ts` (local) |
 | Party client, screens with the QR code, the friends' cars | `src/net/party.ts`, `src/ui/partyUi.ts`, `src/render/remoteCars.ts` |
