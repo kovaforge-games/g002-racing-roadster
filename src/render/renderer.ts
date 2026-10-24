@@ -16,8 +16,10 @@ export class Renderer {
   private ao: GTAOPass | null = null;
   private settings!: GraphicsSettings;
 
-  constructor(container: HTMLElement) {
-    this.gl = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  constructor(container: HTMLElement, antialias = true) {
+    // MSAA on the screen: Low and the iPad draw straight to it (no post-processing), and without it
+    // every edge of the track, fences and cars crawls with jaggies (Safe mode turns it off)
+    this.gl = new THREE.WebGLRenderer({ antialias, powerPreference: 'high-performance' });
     if (import.meta.env.DEV) this.gl.info.autoReset = false;
     this.gl.outputColorSpace = THREE.SRGBColorSpace;
     this.gl.shadowMap.type = THREE.PCFShadowMap;
@@ -36,12 +38,13 @@ export class Renderer {
       s.quality = recommendedQuality(gpu, (navigator as Navigator & { deviceMemory?: number }).deviceMemory, matchMedia('(pointer: coarse)').matches, phone);
       const touch = matchMedia('(pointer: coarse)').matches;
       s.resolutionScale = touch ? 0.85 : 1;  // iPad: ~1.3x pixel ratio, sharp enough and far lighter on memory
-      s.shadows = s.quality !== 'low';
+      // one small shadow map even on Low: without it the cars float above the road
+      s.shadows = true;
       s.postfx = s.quality !== 'low' && !touch;
     }
     this.settings = s;
     this.gl.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, s.quality, s.resolutionScale));
-    this.gl.shadowMap.enabled = s.shadows && s.quality !== 'low';
+    this.gl.shadowMap.enabled = s.shadows;
     if (this.composer) {
       for (const pass of this.composer.passes) pass.dispose();
       this.composer.dispose();
@@ -77,7 +80,12 @@ export class Renderer {
   get quality() { return this.settings.quality; }
 
   /** daytime skies are HDR-bright, so bloom only catches real highlights there */
-  setBloom(strength: number, threshold = 1) { if (this.bloom) { this.bloom.strength = strength; this.bloom.threshold = threshold; } }
+  setBloom(strength: number, threshold = 1) {
+    if (!this.bloom) return;
+    this.bloom.strength = strength; this.bloom.threshold = threshold;
+    // off costs nothing: the blur passes are skipped
+    this.bloom.enabled = strength > 0;
+  }
 
   resize() {
     const w = innerWidth, h = innerHeight;

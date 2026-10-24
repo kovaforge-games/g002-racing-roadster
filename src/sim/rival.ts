@@ -75,6 +75,9 @@ export class RivalDriver {
   /** commits to boosting for a whole straight instead of flickering on and off */
   private boostHold = 0;
   private hopNext = false;
+  /** Fun Mode: somewhere on the road to aim for (a ring of fire, an item box) and whether to
+   *  jump now; null drives the normal race */
+  aim: ((s: number, speed: number) => { s: number; d: number; hop: boolean } | null) | null = null;
 
   constructor(readonly def: RivalDef, private track: Track, private line: Float64Array, private profile: Float64Array) {}
 
@@ -132,6 +135,9 @@ export class RivalDriver {
         if (ds > 20 && ds < 140 && ds < bestDs) { bestDs = ds; seek = c.d - this.at(this.line, c.s); }
       }
     }
+    const goal = this.aim?.(me.s, speed) ?? null;
+    if (goal?.hop) this.hopNext = true;
+    if (goal && blocked > 12) seek = goal.d - this.at(this.line, goal.s);
     if (seek !== null) this.laneTarget = seek;
     else if (blocked === Infinity) this.laneTarget *= Math.exp(-dt * 0.6);
     this.lane += (this.laneTarget - this.lane) * Math.min(1, dt * 1.5);

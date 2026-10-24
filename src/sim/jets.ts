@@ -1,5 +1,6 @@
-// Cold-gas thrusters fed by one air tank: rear jets for a boost, underbody jets for a hop and
-// small attitude jets for pitch, yaw and roll in the air. Every move draws from the tank, which
+// Cold-gas thrusters fed by one air tank: rear jets for a boost, underbody jets to jump and then
+// hover, side thrusters to dodge sideways on the road or flip the car in the air, and small
+// attitude jets for pitch and steering in the air. Every move draws from the tank, which
 // only refills from air canisters on the track. Forces go on after Car.step() (which clears
 // them) and before world.step().
 import type { Car, CarInputs } from './car';
@@ -17,8 +18,16 @@ export const JETS = {
   /** upward speed a hop adds (m/s): about 2.2 m high and 1.3 s in the air */
   hopSpeed: 6.6,
   hopCooldown: 0.9,
+  /** hover: hold jump in the air and the underbody jets carry most of the car's weight */
+  hoverLift: 0.93, hoverDrain: 0.3,
+  /** side thrusters on the road: a sideways dodge (m/s), its cost and cooldown */
+  sideSpeed: 4.5, sideCost: 0.08, sideCooldown: 0.6,
   /** largest air-control rates (rad/s) and how hard the jets chase them */
-  pitchRate: 5.5, yawRate: 4, rollRate: 6, response: 7,
+  pitchRate: 5.5, rollRate: 6, response: 7,
+  /** steering in the air: the yaw rate (rad/s) at full lock, how quickly (1/s) the car's travel
+   * swings round to follow its nose, and how far (rad) the nose may lead it. Free, so it still
+   * works with an empty tank */
+  airSteerRate: 1.1, airGrip: 4, airLead: 0.25,
   /** a free burst of boost (s) for nailing the start */
   launchWindow: 0.3, launchBoost: 1.2,
 };
@@ -31,9 +40,15 @@ export interface JetInputs {
   airRoll: boolean;
   /** stick pitch, -1 (nose up) .. 1 (nose down); without it, throttle and brake pitch the car */
   pitch?: number;
+  /** jump held: hover once in the air */
+  hover?: boolean;
+  /** side thrusters held, -1 (left) .. 1 (right): a flip in the air */
+  side?: number;
+  /** a side thruster pressed on this step, -1 or 1: a dodge on the road */
+  sidePress?: number;
 }
 
-export type JetEvent = 'launch' | 'hop' | 'landing' | 'clean-landing' | 'flip' | 'roll' | 'spin' | 'empty';
+export type JetEvent = 'launch' | 'hop' | 'dodge' | 'landing' | 'clean-landing' | 'flip' | 'roll' | 'spin' | 'empty';
 
 export class Jets {
   /** 0..1 */
@@ -42,6 +57,9 @@ export class Jets {
   /** 0..1 attitude-jet output, for the vapour puffs and hiss */
   attitude = 0;
   hopCooldown = 0;
+  sideCooldown = 0;
+  /** the underbody jets are holding the car up */
+  hovering = false;
   /** remaining seconds of free launch boost */
   freeBoost = 0;
   airTime = 0;
@@ -68,6 +86,7 @@ export class Jets {
     this.events.length = 0;
     this.hopped = false;
     this.hopCooldown = Math.max(0, this.hopCooldown - dt);
+    this.sideCooldown = Math.max(0, this.sideCooldown - dt);
     if (this.launchClock >= 0) {
       this.launchClock += dt;
       if (inp.boost && this.launchClock < JETS.launchWindow) { this.freeBoost = JETS.launchBoost; this.launchClock = -1; this.events.push('launch'); }
@@ -102,8 +121,29 @@ export class Jets {
       this.events.push('hop');
     }
 
+    // side thrusters on the road: a quick sideways dodge
+    if (inp.sidePress && grounded && this.sideCooldown <= 0 && this.tank >= JETS.sideCost * 0.5) {
+      const m = car.spec.mass, dv = JETS.sideSpeed * inp.sidePress;
+      b.applyImpulse({ x: right.x * dv * m, y: 0.4 * m, z: right.z * dv * m }, true);
+      this.drain(JETS.sideCost);
+      this.sideCooldown = JETS.sideCooldown;
+      this.events.push('dodge');
+    }
+
+    // hover: jump held in the air, once the jump is near its top, the underbody jets carry most of
+    // the weight and soak up a fall
+    this.hovering = false;
+    const lvNow = b.linvel();
+    if (inp.hover && car.airborne && this.airTime > 0.15 && lvNow.y < 1.5 && this.tank > 0) {
+      const m = car.spec.mass;
+      const f = m * 9.81 * JETS.hoverLift + m * Math.max(0, -lvNow.y) * 2.5;
+      b.addForce({ x: 0, y: f, z: 0 }, true);
+      this.drain(JETS.hoverDrain * dt);
+      this.hovering = true;
+    }
+
     // attitude jets in the air: chase a target rate on each local axis
-    this.attitude = 0;
+    this.attitude = this.hovering ? 0.6 : 0;
     const stick = inp.pitch ?? 0;
     const rawPitch = Math.abs(stick) > 0.15 ? stick : drive.throttle - drive.brake;
     if (car.airborne) {
@@ -119,25 +159,53 @@ export class Jets {
       if (Math.abs(rawPitch) < 0.1) this.latch.pitch = false;
       if (Math.abs(drive.steer) < 0.1) this.latch.steer = false;
       const pitchIn = this.latch.pitch ? 0 : rawPitch;
-      const steerIn = this.latch.steer ? 0 : drive.steer;
-      const yawIn = inp.airRoll ? 0 : steerIn;
-      const rollIn = inp.airRoll ? steerIn : 0;
-      const active = this.airTime > 0.08 && this.tank > 0 && (Math.abs(pitchIn) > 0.05 || Math.abs(yawIn) > 0.05 || Math.abs(rollIn) > 0.05);
+      // the side thrusters roll the car (a flip); holding the roll button turns steering into roll
+      // too, and then steering held from take-off waits to be re-centred so it doesn't tip the car
+      const side = inp.side ?? 0;
+      const steerIn = inp.airRoll ? (this.latch.steer ? 0 : drive.steer) : 0;
+      const rollIn = Math.abs(side) > 0.05 ? side : steerIn;
+      const active = this.airTime > 0.08 && this.tank > 0 && (Math.abs(pitchIn) > 0.05 || Math.abs(rollIn) > 0.05);
       const I = car.spec.inertia;
       const k = JETS.response;
       let tx = 0, ty = 0, tz = 0;
       if (active) {
         // no input on an axis: hold its current rate (players flip, the jets don't fight them)
         if (Math.abs(pitchIn) > 0.05) tx = I.x * k * (pitchIn * JETS.pitchRate - wx);
-        if (Math.abs(yawIn) > 0.05) ty = I.y * k * (-yawIn * JETS.yawRate - wy);
         if (Math.abs(rollIn) > 0.05) tz = I.z * k * (rollIn * JETS.rollRate - wz);
-        this.attitude = Math.min(1, Math.abs(pitchIn) + Math.abs(yawIn) + Math.abs(rollIn));
+        this.attitude = Math.min(1, Math.max(this.attitude, Math.abs(pitchIn) + Math.abs(rollIn)));
         this.drain(JETS.airDrain * this.attitude * dt);
       } else if (assist && this.airTime > 0.25) {
         // driving help: with the sticks centred, ease the car back to wheels-down for the landing,
         // turning about up × world-up
         const m = car.spec.inertia.x / 3300, s = 7000 * m, d = 2500 * m;
         b.addTorque({ x: -up.z * s - av.x * d, y: 0, z: up.x * s - av.z * d }, true);
+      }
+      // steering in the air: turn the nose like the car turns on the road, and while the car is
+      // roughly upright its travel follows the nose, so a jump or a hover can take a corner (not
+      // on a short skip over a kerb or a bump)
+      if (!inp.airRoll && this.airTime > 0.15) {
+        const steer = Math.abs(drive.steer) > 0.05 ? drive.steer : 0;
+        let yawWant = -steer * JETS.airSteerRate;
+        if (steer) this.attitude = Math.max(this.attitude, Math.abs(steer) * 0.5);
+        const lv = b.linvel();
+        // flying backwards, the travel follows the tail instead
+        const dir = lv.x * fwd.x + lv.z * fwd.z < 0 ? -1 : 1;
+        const sp = Math.hypot(lv.x, lv.z), hl = Math.hypot(fwd.x, fwd.z);
+        if (sp > 2 && hl > 0.3) {
+          // how far the nose points from the travel, + to the left
+          let d = Math.atan2(fwd.x * dir, fwd.z * dir) - Math.atan2(lv.x, lv.z);
+          d = Math.atan2(Math.sin(d), Math.cos(d));
+          // the nose leads the travel by a little, never so far that the car spins round
+          if (yawWant * d > 0) yawWant *= Math.max(0, Math.min(1, 2 - Math.abs(d) / JETS.airLead));
+          if (up.y < 0.5) d = 0;
+          const turn = d * Math.min(1, JETS.airGrip * dt);
+          const c = Math.cos(turn), sn = Math.sin(turn);
+          const nx = lv.x * c + lv.z * sn, nz = -lv.x * sn + lv.z * c;
+          const m = car.spec.mass;
+          b.applyImpulse({ x: (nx - lv.x) * m, y: 0, z: (nz - lv.z) * m }, true);
+        }
+        // no steering: leave the yaw alone, like the other axes
+        if (steer) ty = I.y * k * (yawWant - wy);
       }
       if (tx || ty || tz) {
         b.addTorque({
@@ -173,7 +241,7 @@ export class Jets {
   }
 
   reset() {
-    this.boosting = false; this.attitude = 0; this.freeBoost = 0; this.airTime = 0;
+    this.boosting = false; this.attitude = 0; this.freeBoost = 0; this.airTime = 0; this.hovering = false; this.sideCooldown = 0;
     this.airPitch = this.airRoll = this.airYaw = 0; this.wasAirborne = false; this.launchClock = -1;
   }
 }

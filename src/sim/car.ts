@@ -110,6 +110,17 @@ export class Car {
   readonly tyreTemp = [TYRE.blanket, TYRE.blanket, TYRE.blanket, TYRE.blanket];
   private tyreForce = [0, 0, 0, 0];
   abs = true;
+  /** crash damage (sim/damage.ts): motor power left, and a steering pull from a bent corner */
+  powerMul = 1;
+  steerPull = 0;
+  /** per-wheel grip from the tyres fitted in the garage (1 = the class's own tyres) */
+  readonly gripMul = [1, 1, 1, 1];
+  /** how fast the tyres heat up (1 = normal; softer tyres heat faster) */
+  heatMul = 1;
+  /** 0..1 in another car's slipstream: less drag (set by the race each step) */
+  draft = 0;
+  /** 0..1 in another car's dirty air: less downforce (set by the race each step) */
+  dirtyAir = 0;
 
   // telemetry
   speed = 0;          // forward speed, m/s (negative in reverse)
@@ -123,6 +134,8 @@ export class Car {
   airborne = false;
   latAccel = 0; longAccel = 0;
   impact = 0;         // largest sudden velocity change this frame (m/s), for camera shake and sound
+  /** the velocity change (world m/s) of that impact, for crash damage */
+  impactVec = { x: 0, y: 0, z: 0 };
 
   private prevVel = { x: 0, y: 0, z: 0 };
   private steerAngle = 0;
@@ -167,6 +180,7 @@ export class Car {
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.prevVel = { x: 0, y: 0, z: 0 };
+    this.impact = 0;
     this.steerAngle = 0;
     this.gear = this.spec.gears ? 1 : 0;
   }
@@ -198,7 +212,7 @@ export class Car {
     this.airborne = grounded === 0;
 
     // steering: speed-sensitive lock, eased so the car can't snap its wheels across
-    const target = -inp.steer * steerLockAt(vF, S.steerLock);   // positive road-wheel angle steers left
+    const target = -Math.max(-1, Math.min(1, inp.steer + this.steerPull)) * steerLockAt(vF, S.steerLock);   // positive road-wheel angle steers left
     this.steerAngle += Math.max(-3 * dt, Math.min(3 * dt, target - this.steerAngle));
     // a touch of Ackermann: the inside wheel turns a little more
     const ack = 1 + Math.min(0.15, Math.abs(this.steerAngle) * 0.5);
@@ -217,13 +231,14 @@ export class Car {
       if (vF > S.topSpeed) drive *= Math.max(0, 1 - (vF - S.topSpeed) / 2);
     }
     if (S.gears) drive *= this.gearbox(vF, dt);
+    drive *= this.powerMul;
     const braking = !reversing && inp.brake > 0.02;
     let regen = 0;
     for (let i = 0; i < 4; i++) {
       const front = this.layout[i].front;
       const share = (front ? S.frontDriveShare : 1 - S.frontDriveShare) / 2;
       let f = drive * share;
-      const grip = S.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]);
+      const grip = S.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]) * this.gripMul[i];
       if (this.tractionControl && f !== 0) f = Math.sign(f) * Math.min(Math.abs(f), grip * load[i] * 0.95);
       // Rapier ignores the brake on a wheel that has engine force, so only one is ever set
       let brake = 0;
@@ -249,13 +264,15 @@ export class Car {
     this.powerKw = (drive * Math.max(0, vF) - regen - (braking ? Math.min(S.mass * 3, S.brakeDecel * S.mass * inp.brake) * Math.max(0, vF) * 0.4 : 0)) / 1000;
 
     // aero: drag against the motion, downforce along the car's down axis
-    const drag = 0.5 * RHO * S.dragArea * speed;
+    // (a car close behind another one sits in its slipstream: up to a third less drag)
+    const drag = 0.5 * RHO * S.dragArea * speed * (1 - 0.28 * this.draft);
     // rolling resistance, much higher on grass
     const grass = this.surface.reduce((a, g, i) => a + (v.wheelIsInContact(i) ? 1 - g : 0), 0) / 4;
     const roll = speed > 0.3 && grounded ? (S.rollResist + grass * 0.35) * S.mass * G / speed : 0;
     b.addForce({ x: -(drag + roll) * lv.x, y: -(drag + roll) * lv.y, z: -(drag + roll) * lv.z }, true);
     if (grounded) {
-      const lift = 0.5 * RHO * S.liftArea * vF * vF;
+      // (and in its dirty air the wings and floor work less well)
+      const lift = 0.5 * RHO * S.liftArea * vF * vF * (1 - 0.3 * this.dirtyAir);
       b.addForce({ x: -up.x * lift, y: -up.y * lift, z: -up.z * lift }, true);
     }
 
@@ -296,7 +313,10 @@ export class Car {
     // telemetry
     const accX = (lv.x - this.prevVel.x) / dt, accY = (lv.y - this.prevVel.y) / dt, accZ = (lv.z - this.prevVel.z) / dt;
     const jump = Math.hypot(lv.x - this.prevVel.x, lv.y - this.prevVel.y, lv.z - this.prevVel.z);
-    if (jump > 1.2 * G * dt * 3) this.impact = Math.max(this.impact, jump);
+    if (jump > 1.2 * G * dt * 3 && jump > this.impact) {
+      this.impact = jump;
+      this.impactVec = { x: lv.x - this.prevVel.x, y: lv.y - this.prevVel.y, z: lv.z - this.prevVel.z };
+    }
     const smooth = Math.min(1, dt * 8);
     this.latAccel += ((accX * right.x + accY * right.y + accZ * right.z) - this.latAccel) * smooth;
     this.longAccel += ((accX * fwd.x + accY * fwd.y + accZ * fwd.z) - this.longAccel) * smooth;
@@ -329,8 +349,8 @@ export class Car {
       // (the more a tyre is loaded the harder it works, so the outside tyres in a corner heat up
       // most; past the car's own weight, downforce adds less)
       const work = Math.min(loadN, 1) ** 2 * Math.max(1, loadN) ** 0.5;
-      const heat = work * (TYRE_HEAT.roll * Math.abs(vF) + TYRE_HEAT.slide * Math.min(lat, 4)) + TYRE_HEAT.force * this.tyreForce[i] / (S.mass * G / 4) * Math.min(1, Math.abs(vF) / 10)
-        + (w.slip > 0.5 ? TYRE_HEAT.skid * w.slip : 0);
+      const heat = this.heatMul * (work * (TYRE_HEAT.roll * Math.abs(vF) + TYRE_HEAT.slide * Math.min(lat, 4)) + TYRE_HEAT.force * this.tyreForce[i] / (S.mass * G / 4) * Math.min(1, Math.abs(vF) / 10)
+        + (w.slip > 0.5 ? TYRE_HEAT.skid * w.slip : 0));
       // (a very hot tyre sheds heat much faster, so even a scrubbing, sliding tyre levels off)
       const hot = 1 + Math.max(0, this.tyreTemp[i] - 90) / 12;
       const cool = (this.tyreTemp[i] - this.ambient) * (TYRE_HEAT.cool + TYRE_HEAT.coolSpeed * Math.abs(vF)) * hot;

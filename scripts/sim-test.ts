@@ -18,6 +18,11 @@ import { newRun, scoreRound, standings, isOver } from '../src/sim/championship';
 import { LICENSES, medalFor, medalTime } from '../src/sim/licenses';
 import { referenceTime, referenceLap } from './license-times';
 import { LAP_REF, qualifyingOrder } from '../src/sim/weekend';
+import { Damage, DAMAGE } from '../src/sim/damage';
+import { Tow, TOW } from '../src/sim/tow';
+import * as THREE from 'three';
+import { Fun, FUN_DEFAULTS } from '../src/sim/fun';
+import { racingLine } from '../src/sim/racingLine';
 
 await initPhysics();
 // the bots roll dice (mistakes, passing, boosting): seed them so every run of this test is the same
@@ -122,15 +127,62 @@ const check = (ok: boolean, msg: string) => { console.log(`${ok ? '  ok ' : 'FAI
   console.log(`air control: ${flipped ? 'went over' : 'did not rotate'}, events ${events.join(', ') || '-'}, upright ${car.axes().up.y.toFixed(2)}`);
   check(flipped, 'holding pitch in the air rotates the car past upside down');
 
-  // throttle and steering already held at take-off don't pitch or yaw the car
+  // throttle held at take-off doesn't pitch the car; steering in the air turns it and its travel
+  const heading = () => { const v = car.body.linvel(); return Math.atan2(v.x, v.z); };
+  const airSteer = (tank: number, hover = false) => {
+    car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+    run({ ...idle, throttle: 1 }, none, () => car.speed > 25);
+    const held = { ...idle, throttle: 1, steer: 0.6 };
+    car.step(held); jets.step(car, held, { ...none, hop: true, hover }); world.step();
+    jets.tank = tank;
+    let minUp = 1, h0 = NaN, h1 = 0, lead = 0;
+    run(held, { ...none, hover }, t => {
+      minUp = Math.min(minUp, car.axes().up.y);
+      if (car.airborne) {
+        if (isNaN(h0)) h0 = heading();
+        h1 = heading();
+        const f = car.axes().fwd, d = Math.atan2(f.x, f.z) - h1;
+        lead = Math.max(lead, Math.abs(Math.atan2(Math.sin(d), Math.cos(d))));
+      }
+      return t > 0.2 && !car.airborne || t > 8;
+    });
+    let turned = h1 - h0; turned = Math.abs(Math.atan2(Math.sin(turned), Math.cos(turned)));
+    return { minUp, turned, lead };
+  };
+  const full = airSteer(1), empty = airSteer(0), hov = airSteer(1, true);
+  console.log(`hop holding throttle and steering: lowest up ${full.minUp.toFixed(2)}, travel turned ${(full.turned * 57.3).toFixed(0)}° in the air (${(empty.turned * 57.3).toFixed(0)}° with an empty tank)`);
+  console.log(`hover holding steering: travel turned ${(hov.turned * 57.3).toFixed(0)}°, nose at most ${(hov.lead * 57.3).toFixed(0)}° off the travel, landed at ${(car.speed * 3.6).toFixed(0)} km/h`);
+  check(full.minUp > 0.9, 'inputs held through a hop keep the car level');
+  check(full.turned > 0.35 && full.turned < 1.6, 'steering in the air turns the car\'s travel (20° to 90° in one jump)');
+  check(empty.turned > 0.35, 'steering in the air works with an empty tank');
+  check(hov.turned > 1 && hov.lead < 0.6 && car.speed > 10, 'steering through a hover takes a corner without spinning the car round');
+
+  // Road Thruster controls: holding jump hovers, side thrusters dodge on the road and flip in the air
   car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
-  run({ ...idle, throttle: 1 }, none, () => car.speed > 40);
-  const held = { ...idle, throttle: 1, steer: 0.5 };
-  car.step(held); jets.step(car, held, { ...none, hop: true }); world.step();
-  let minUp = 1, yaw = 0;
-  run(held, none, t => { minUp = Math.min(minUp, car.axes().up.y); if (car.airborne) yaw += Math.abs(car.yawRate) * dt; return t > 0.2 && !car.airborne || t > 3; });
-  console.log(`hop holding throttle and steering: lowest up ${minUp.toFixed(2)}, yaw in the air ${(yaw * 57.3).toFixed(0)}°`);
-  check(minUp > 0.9 && yaw < 0.3, 'inputs held through a hop keep the car level');
+  run(idle, none, t => t > 1);
+  car.step(idle); jets.step(car, idle, { ...none, hop: true, hover: true }); world.step();
+  let hoverAir = 0, hoverTime = 0;
+  run(idle, { ...none, hover: true }, t => { if (car.airborne) hoverAir += dt; if (jets.hovering) hoverTime += dt; return t > 0.3 && !car.airborne || t > 8; });
+  console.log(`jump held: ${hoverAir.toFixed(2)} s in the air (${hoverTime.toFixed(2)} s hovering), tank ${(jets.tank * 100).toFixed(0)}%`);
+  check(hoverAir > air + 1, 'holding jump hovers: at least a second longer in the air than a plain jump');
+
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run({ ...idle, throttle: 1 }, none, t => t > 0.5 && car.speed > 20);
+  car.step(idle); jets.step(car, idle, { ...none, sidePress: 1 }); world.step();
+  const { right } = car.axes(), lv = car.body.linvel();
+  const sideways = lv.x * right.x + lv.z * right.z;
+  console.log(`side thruster on the road: ${sideways.toFixed(1)} m/s sideways`);
+  check(jets.events.includes('dodge') && sideways > 3, 'a side thruster dodges sideways on the road');
+
+  // (car.speed only updates on a step, so drive a moment before reading it after place())
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run({ ...idle, throttle: 1 }, none, t => t > 0.5 && car.speed > 20);
+  car.step(idle); jets.step(car, idle, { ...none, hop: true }); world.step();
+  let rolled = false; const rollEvents: string[] = [];
+  run(idle, { ...none, side: -1 }, t => { if (car.axes().up.y < -0.3) rolled = true; rollEvents.push(...jets.events); return t > 0.3 && !car.airborne || t > 4; });
+  run(idle, none, t => t > 2);
+  console.log(`side thruster in the air: ${rolled ? 'rolled over' : 'did not roll'}, events ${rollEvents.join(', ') || '-'}, upright ${car.axes().up.y.toFixed(2)}`);
+  check(rolled, 'a side thruster held in the air flips the car');
 }
 
 // ---- laps of the circuit
@@ -198,19 +250,26 @@ function runRace(opts: RaceOptions) {
   for (let k = 0; k < 240; k++) { car.step(hold); race.stepRivals(); world.step(); race.afterStep(); }
   race.go();
   const boost = new Map<string, number>(), air = new Map<string, number>();
-  let t = 0;
+  let t = 0, stuckT = 0, playerResets = 0;
   while (t < 150 * race.laps && !race.allFinished) {
     const p = race.player;
     updateSurface(car, track, p.hint);
     const inp = applyDrivingHelp('easy', pilot.drive(car, p.hint, p.s, dt), car);
     car.step(inp); jets.step(car, inp, { boost: false, hop: false, airRoll: false });
     race.stepRivals(); world.step(); canisters.step(dt); race.afterStep(); t += dt;
+    // wedged against a wall: the line driver can't back out, so press R like a player would
+    stuckT = Math.abs(car.speed) < 1 && !race.player.finished ? stuckT + dt : 0;
+    if (stuckT > 3) {
+      stuckT = 0; playerResets++;
+      const s = race.player.s - 5, q = track.pointAt(s, 0);
+      car.place(q.x, q.y, q.z, track.headingAt(s)); jets.reset();
+    }
     for (const e of race.rivals) {
       if (e.jets.boosting) boost.set(e.name, (boost.get(e.name) ?? 0) + dt);
       if (e.gotAir) air.set(e.name, (air.get(e.name) ?? 0) + e.gotAir);
     }
   }
-  console.log(`${race.rivals.length} rivals, ${race.difficulty}, ${race.laps} laps:`);
+  console.log(`${race.rivals.length} rivals, ${race.difficulty}, ${race.laps} laps${playerResets ? ` (the player's car was reset ${playerResets}×)` : ''}:`);
   for (const e of race.standings) {
     console.log(`  P${e.pos} ${e.name.padEnd(25)} ${e.finishTime?.toFixed(1) ?? 'dnf'} s, best lap ${e.bestLap?.toFixed(1) ?? '-'} s` +
       (e.driver ? `, boost ${(boost.get(e.name) ?? 0).toFixed(1)} s, air picked up ${((air.get(e.name) ?? 0) * 100).toFixed(0)}%, resets ${e.resets}` : ''));
@@ -320,6 +379,185 @@ function runRace(opts: RaceOptions) {
   const race = new Race(track, world, new Canisters(track), car, new Jets(), { opponents: 5, grid: q.map(r => r.name) });
   check(race.entrants.map(e => e.name).join() === q.map(r => r.name).join(), 'the race grid follows the qualifying order');
   world.free();
+}
+
+// ---- crash damage: hits into the barrier, and the flying tow putting the car back on the road
+{
+  console.log('crash damage:');
+  const track = new Track(), world = buildWorld(track, new Terrain(track));
+  const s = 420;
+  /** drive into the right-hand barrier at `v` m/s, `angle` (rad) off the track direction */
+  const crash = (v: number, angle: number, from = 9, steps = 240) => {
+    const head = track.headingAt(s), a = track.pointAt(s, from);
+    const right = track.pointAt(s, 10);
+    const toWall = Math.atan2(right.x - a.x, right.z - a.z);
+    let d = toWall - head; d = Math.atan2(Math.sin(d), Math.cos(d));
+    const h = head + d * (angle / (Math.PI / 2));
+    const car = new Car(world, a.x, a.y, a.z, h);
+    for (let k = 0; k < 60; k++) { car.step({ steer: 0, throttle: 0, brake: 0, handbrake: true }); world.step(); }
+    car.body.setLinvel({ x: Math.sin(h) * v, y: 0, z: Math.cos(h) * v }, true);
+    (car as unknown as { prevVel: object }).prevVel = { x: Math.sin(h) * v, y: 0, z: Math.cos(h) * v };
+    const dmg = new Damage();
+    for (let k = 0; k < steps; k++) {
+      car.step({ steer: 0, throttle: 0, brake: 0, handbrake: false }); world.step();
+      if (car.impact > DAMAGE.threshold) dmg.hit(car, car.impactVec);
+      car.takeImpact();
+    }
+    car.dispose();
+    return dmg;
+  };
+  const big = crash(26, Math.PI / 2), mid = crash(14, Math.PI / 2), scrape = crash(25, 0.12, 13, 150);
+  console.log(`  head-on 94 km/h: front ${big.zones.front.toFixed(2)}; 50 km/h: front ${mid.zones.front.toFixed(2)}, power ${(mid.powerMul * 100).toFixed(0)}%; glancing scrape: worst ${scrape.worst.toFixed(2)}`);
+  check(big.wrecked, 'a head-on hit at 94 km/h wrecks the car');
+  check(!mid.wrecked && mid.zones.front > 0.2 && mid.powerMul < 1, 'a head-on hit at 50 km/h dents the front and costs power');
+  check(mid.zones.rear === 0, 'a front hit leaves the rear alone');
+  check(scrape.worst < 0.15, 'a glancing scrape along the barrier barely marks the car');
+
+  // the tow: from a car on its roof off the road to the road, facing the right way
+  const carAt = { p: new THREE.Vector3(...(['x', 'y', 'z'] as const).map(k => track.pointAt(600, 12)[k])), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1, Math.PI)) };
+  carAt.p.y += 0.5;
+  const tow = new Tow(track, carAt, 595, 3, CAR.comHeight);
+  const seen = new Set<string>();
+  let t = 0, held = 0, lowest = Infinity, released: THREE.Vector3 | null = null;
+  while (!tow.done && t < 40) {
+    tow.step(dt); t += dt;
+    for (const e of tow.takeEvents()) { seen.add(e); if (e === 'release') released = tow.carPos.clone(); }
+    if (tow.holding) { held += dt; lowest = Math.min(lowest, tow.pos.y - tow.carPos.y); }
+  }
+  const road = track.pointAt(595, 3);
+  console.log(`  tow: holds the car ${held.toFixed(1)} s, gone after ${t.toFixed(1)} s, events ${[...seen].join(' ')}`);
+  check(tow.done && t < 25, 'the tow finishes and flies away');
+  check(['hooked', 'release', 'ring', 'gone'].every(e => seen.has(e)), 'the tow hooks, drops the car, flies through the rings and leaves');
+  check(tow.rings.length === TOW.rings.length && tow.rings.every(r => r.passed), 'it flies through every ring of fire');
+  check(!!released && Math.hypot(released.x - road.x, released.z - road.z) < 0.5 && Math.abs(released.y - road.y - CAR.comHeight) < 0.3, 'the car is set down on the road');
+  check(lowest > TOW.cable, 'the tow car stays above the car it carries');
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(tow.carQuat);
+  check(Math.abs(Math.atan2(fwd.x, fwd.z) - track.headingAt(595)) < 0.05 || Math.abs(Math.abs(Math.atan2(fwd.x, fwd.z) - track.headingAt(595)) - 2 * Math.PI) < 0.05, 'the car faces along the track when it lands');
+}
+
+// ---- Fun Mode: every ramp's jump lands on the road (the big one through its ring of fire), the
+// rings score and singe, items work, the slipstream tows, and the bots get round a fun race
+{
+  console.log('fun mode:');
+  const line = racingLine(track);
+  const RAMP_SPEED = [0.84, 0.96, 0.78];
+  for (const id of CLASS_ORDER) {
+    const spec = CLASSES[id].spec;
+    const world = buildWorld(track, terrain);
+    const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);
+    const jumps = fun.layout.ramps.map((r, k) => {
+      // straight down the middle of the ramp at its design speed, the driving help on
+      const d = (r.d0 + r.d1) / 2, v = spec.topSpeed * RAMP_SPEED[k], s0 = r.s0 - 60;
+      const p = track.pointAt(s0, d), h = track.headingAt(s0);
+      const car = new Car(world, p.x, p.y, p.z, h, spec), jets = new Jets();
+      const fc = fun.add('test', car, jets, { car, s: s0, lateral: d, speed: v }, true, false);
+      car.body.setLinvel({ x: Math.sin(h) * v, y: 0, z: Math.cos(h) * v }, true);
+      let hint = track.nearest(p.x, p.z).i, t = 0, air = 0, best = 0, land = 0, flipped = false;
+      while (t < 4) {
+        const pos = car.body.translation();
+        const near = track.nearest(pos.x, pos.z, hint); hint = near.i;
+        fc.view.s = near.s; fc.view.lateral = near.lateral;
+        const ahead = track.pointAt(near.s + 25, d), ax = car.axes();
+        const tx = ahead.x - pos.x, tz = ahead.z - pos.z;
+        const steer = Math.max(-1, Math.min(1, 2 * Math.atan2(ax.fwd.x * tz - ax.fwd.z * tx, ax.fwd.x * tx + ax.fwd.z * tz)));
+        const inp = { steer, throttle: car.speed < v ? 1 : 0.2, brake: 0, handbrake: false };
+        car.step(inp); jets.step(car, { ...inp, throttle: 0, steer: 0 }, { boost: false, hop: false, airRoll: false });
+        fun.preStep(fc); world.step(); fun.afterStep(dt, true); t += dt;
+        if (car.airborne) air += dt; else { if (air > best) { best = air; land = near.lateral; } air = 0; }
+        if (ax.up.y < 0.3) flipped = true;
+        if (best > 0.3 && t > 2.5) break;
+      }
+      const rings = fc.rings;
+      fun.clearCars(); world.removeRigidBody(car.body);
+      return { best, land, flipped, rings };
+    });
+    console.log(`  ${id.padEnd(8)} ramp jumps ${jumps.map(j => `${j.best.toFixed(2)} s`).join(', ')}, landing ${jumps.map(j => j.land.toFixed(1)).join(', ')} m across`);
+    check(jumps.every((j, k) => j.best > [1.3, 0.45, 0.45][k] && !j.flipped && Math.abs(j.land) < track.halfWidth + 1), `${id}: every ramp jump lands on the road the right way up`);
+    check(jumps[0].rings === 1, `${id}: the big jump goes through its ring of fire`);
+    world.free();
+  }
+  // rings: through a road ring scores, under a raised one singes; items
+  {
+    const spec = CLASSES['0x1.5'].spec, world = buildWorld(track, terrain);
+    const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);
+    const drive = (d: number, secs: number, fc: ReturnType<typeof fun.add>) => {
+      const car = fc.car;
+      let hint = track.nearest(car.body.translation().x, car.body.translation().z).i;
+      for (let t = 0; t < secs; t += dt) {
+        const pos = car.body.translation(), near = track.nearest(pos.x, pos.z, hint); hint = near.i;
+        fc.view.s = near.s; fc.view.lateral = near.lateral;
+        const ahead = track.pointAt(near.s + 20, d), ax = car.axes(), tx = ahead.x - pos.x, tz = ahead.z - pos.z;
+        const inp = { steer: Math.max(-1, Math.min(1, 2 * Math.atan2(ax.fwd.x * tz - ax.fwd.z * tx, ax.fwd.x * tx + ax.fwd.z * tz))), throttle: car.speed < 25 ? 1 : 0, brake: 0, handbrake: false };
+        car.step(inp); fun.preStep(fc); world.step(); fun.afterStep(dt, true);
+      }
+    };
+    const place = (s: number, d: number) => {
+      const p = track.pointAt(s, d), h = track.headingAt(s);
+      const car = new Car(world, p.x, p.y, p.z, h, spec);
+      car.body.setLinvel({ x: Math.sin(h) * 25, y: 0, z: Math.cos(h) * 25 }, true);
+      return fun.add('test', car, new Jets(), { car, s, lateral: d, speed: 25 }, true, false);
+    };
+    const road = fun.layout.rings.find(r => r.kind === 'road')!, hop = fun.layout.rings.find(r => r.kind === 'hop')!;
+    const a = place(road.s - 30, road.d);
+    drive(road.d, 2, a);
+    check(a.rings === 1 && a.stunt >= 100, 'driving through a ring of fire scores');
+    fun.clearCars(); world.removeRigidBody(a.car.body);
+    const b = place(hop.s - 30, hop.d);
+    drive(hop.d, 2, b);
+    check(b.rings === 0 && b.soot > 0, 'driving under a raised ring of fire singes the car');
+    b.item = 'turbo'; b.charges = 1;
+    const v0 = b.car.speed;
+    check(fun.useItem(b) && b.boostT > 0 && b.item === null, 'a turbo fires and is used up');
+    drive(hop.d, 1, b);
+    check(b.car.speed > v0 + 3, 'the turbo speeds the car up');
+    b.item = 'mega'; b.charges = 1;
+    fun.useItem(b);
+    check(b.car.body.linvel().y > 8, 'Mega Jump throws the car up');
+    world.free();
+  }
+  // the slipstream: right behind another car the drag drops
+  {
+    const world = buildWorld(track, terrain);
+    const car = new Car(world, 0, 0, 0, 0), jets = new Jets();
+    const race = new Race(track, world, new Canisters(track), car, jets, { opponents: 1 });
+    race.go();
+    const lead = race.rivals[0];
+    const s = 200, p = track.pointAt(s, 0), q = track.pointAt(s - 10, 0), h = track.headingAt(s);
+    lead.car.place(p.x, p.y, p.z, h); car.place(q.x, q.y, q.z, h);
+    for (const c of [lead.car, car]) c.body.setLinvel({ x: Math.sin(h) * 50, y: 0, z: Math.cos(h) * 50 }, true);
+    lead.car.speed = car.speed = 50;
+    lead.hint = track.nearest(p.x, p.z).i; race.player.hint = track.nearest(q.x, q.z).i;
+    for (let k = 0; k < 480; k++) race.afterStep();
+    check(car.draft > 0.5 && lead.car.draft === 0, `slipstream: the car behind gets a tow (draft ${car.draft.toFixed(2)})`);
+    world.free();
+  }
+  // a fun race: the bots go for rings, boxes and items and all get round
+  {
+    const spec = CLASSES['0x1.5'].spec, world = buildWorld(track, terrain);
+    const car = new Car(world, 0, -100, 0, 0, spec), jets = new Jets();
+    const race = new Race(track, world, new Canisters(track), car, jets, { opponents: 5, laps: 2, difficulty: 'pro' });
+    const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);
+    const cars = new Map(race.entrants.map(e => [e, fun.add(e.name, e.car, e.jets, e, e === race.player, !!e.driver)] as const));
+    for (const e of race.rivals) { const fc = cars.get(e)!, dr = e.driver!; dr.aim = (s, v) => fun.aim(fc, s, v, dr.def.aggression); }
+    race.onRivalStep = (e, step) => fun.preStep(cars.get(e)!, step);
+    const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
+    for (let k = 0; k < 240; k++) { car.step(hold); race.stepRivals(); world.step(); race.afterStep(); fun.afterStep(dt, false); }
+    race.go();
+    let t = 0;
+    const kinds = new Set<string>();
+    while (t < 400 && !race.rivals.every(e => e.finished)) {
+      car.step(hold); race.stepRivals(); world.step(); race.afterStep(); fun.afterStep(dt, true); t += dt;
+      for (const fc of fun.cars) { for (const ev of fc.events) kinds.add(ev.kind); fc.events.length = 0; }
+    }
+    const bots = race.rivals.map(e => cars.get(e)!);
+    const resets = race.rivals.reduce((a, e) => a + e.resets, 0);
+    console.log(`  fun race: ${race.rivals.map(e => `${e.name.split(' ')[0]} ${e.finishTime?.toFixed(0) ?? 'dnf'} s, ${cars.get(e)!.stunt} pts, ${cars.get(e)!.rings} rings`).join('; ')}; ${resets} resets; events ${[...kinds].join(' ')}`);
+    check(race.rivals.every(e => e.finished), 'fun race: every bot finishes');
+    check(resets <= 8, 'fun race: the bots need at most 8 resets between them');
+    check(bots.every(b => b.rings > 0 && b.stunt > 0), 'fun race: every bot scores stunt points and flies through rings');
+    check(['ring', 'box', 'item', 'pad', 'air'].every(k => kinds.has(k)), 'fun race: rings, boxes, items, boost pads and big air all happen');
+    world.free();
+  }
 }
 
 process.exit(failed ? 1 : 0);

@@ -3,26 +3,38 @@
 import type { CarInputs } from '../sim/car';
 import type { TouchDrive } from '../ui/touch';
 
-export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop';
+export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop' | 'sideLeft' | 'sideRight' | 'item';
 
 const KEYS = {
   left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'],
   throttle: ['ArrowUp', 'KeyW'], brake: ['ArrowDown', 'KeyS'],
-  handbrake: ['Space'], lookBack: ['KeyB'], boost: ['ShiftLeft', 'ShiftRight'],
+  // Road Thruster style: Space jumps (hold to hover), Q and E fire the side thrusters
+  jump: ['Space', 'Enter'], sideLeft: ['KeyQ'], sideRight: ['KeyE'],
+  handbrake: ['KeyX', 'ControlLeft'], lookBack: ['KeyB'], boost: ['ShiftLeft', 'ShiftRight'],
 };
 const PRESS: Record<string, Action> = {
   KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'paint', KeyH: 'help', KeyT: 'time', KeyM: 'mute',
-  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', KeyE: 'hop', Enter: 'hop',
+  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', Space: 'hop', Enter: 'hop', KeyQ: 'sideLeft', KeyE: 'sideRight',
+  // Fun Mode: use the item you're holding
+  KeyF: 'item',
 };
-/** standard-mapping gamepad buttons: A hops, B boosts (held, read in poll) */
-const PAD_PRESS: Record<number, Action> = { 0: 'hop', 3: 'camera', 8: 'reset', 9: 'pause', 2: 'paint' };
+/** standard-mapping gamepad buttons: A jumps (hold to hover), LB and RB fire the side thrusters,
+ *  B boosts and X is the handbrake (held, read in poll); the right stick click or d-pad up uses
+ *  a Fun Mode item */
+const PAD_PRESS: Record<number, Action> = { 0: 'hop', 4: 'sideLeft', 5: 'sideRight', 3: 'camera', 8: 'reset', 9: 'pause', 11: 'item', 12: 'item' };
 
 export interface DriveInput extends CarInputs {
   lookBack: boolean;
   /** rear jets, held */
   boost: boolean;
-  /** the hop button was pressed since the last poll */
+  /** the jump button was pressed since the last poll */
   hop: boolean;
+  /** jump held: hover in the air */
+  hover: boolean;
+  /** side thrusters held, -1 (left) .. 1 (right) */
+  side: number;
+  /** a side thruster pressed since the last poll, -1 or 1 (0: none) */
+  sidePress: number;
   /** gamepad left stick forward/back for pitch in the air (0 on a keyboard) */
   pitch: number;
 }
@@ -89,6 +101,8 @@ class InputManager {
     this.brake += Math.max(-12 * dt, Math.min(20 * dt, (this.held(KEYS.brake) ? 1 : 0) - this.brake));
     let steer = this.steer, throttle = this.throttle, brake = this.brake, pitch = 0;
     let handbrake = this.held(KEYS.handbrake), lookBack = this.held(KEYS.lookBack), boost = this.held(KEYS.boost);
+    let hover = this.held(KEYS.jump);
+    let side = (this.held(KEYS.sideRight) ? 1 : 0) - (this.held(KEYS.sideLeft) ? 1 : 0);
     if (gp) {
       const ax = gp.axes[0] ?? 0;
       const dz = Math.abs(ax) < 0.08 ? 0 : (ax - Math.sign(ax) * 0.08) / 0.92;
@@ -99,10 +113,14 @@ class InputManager {
       // stick forward (negative) is nose down
       const ay = gp.axes[1] ?? 0;
       pitch = Math.abs(ay) < 0.15 ? 0 : -ay;
-      handbrake ||= !!gp.buttons[5]?.pressed;
-      lookBack ||= !!gp.buttons[4]?.pressed;
+      handbrake ||= !!gp.buttons[2]?.pressed;
+      lookBack ||= !!gp.buttons[10]?.pressed;
+      hover ||= !!gp.buttons[0]?.pressed;
+      side ||= (gp.buttons[5]?.pressed ? 1 : 0) - (gp.buttons[4]?.pressed ? 1 : 0);
     }
     let hop = this.consume('hop');
+    const l = this.consume('sideLeft'), r = this.consume('sideRight');
+    let sidePress = r && !l ? 1 : l && !r ? -1 : 0;
     if (this.touch) {
       const t = this.touch.poll(dt);
       if (Math.abs(t.steer) > Math.abs(steer)) steer = t.steer;
@@ -110,9 +128,12 @@ class InputManager {
       brake = Math.max(brake, t.brake);
       boost ||= t.boost;
       hop ||= t.hop;
+      hover ||= t.hover;
+      side ||= t.side;
+      sidePress ||= t.sidePress;
       if (t.throttle || t.brake || t.steer) this.lastDevice = 'touch';
     }
-    return { steer: Math.max(-1, Math.min(1, steer)), throttle, brake, handbrake, lookBack, boost, hop, pitch };
+    return { steer: Math.max(-1, Math.min(1, steer)), throttle, brake, handbrake, lookBack, boost, hop, hover, side, sidePress, pitch };
   }
 }
 

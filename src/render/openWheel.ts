@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 import { hardpointY, type Car, type CarSpec } from '../sim/car';
 import { PAINTS } from './carModel';
+import { Livery, OPEN_WHEEL_SHAPE, type LiveryConfig } from './livery';
+import type { RimStyle, WingStyle } from '../core/garage';
 
 /** one cross-section of a loft: centre height, half width and half height at z, and how square it is */
 interface Section { z: number; y: number; w: number; h: number; sq?: number }
@@ -80,6 +82,8 @@ export class OpenWheelModel {
   private paintIndex = 0;
   private roll = 0; private pitch = 0;
   number = 0;
+  private rimMat: THREE.MeshStandardMaterial;
+  private livery: Livery | null = null;
   /** the single-seater has a fixed wing: no spoiler call-outs */
   onSpoiler?: (up: boolean) => void;
 
@@ -89,6 +93,8 @@ export class OpenWheelModel {
     const carbon = new THREE.MeshPhysicalMaterial({ color: 0x111215, roughness: 0.4, metalness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.15 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x08090b, roughness: 0.8 });
     const metal = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.35, metalness: 0.8 });
+    // the rims get their own material so the garage can colour them
+    const rimMat = this.rimMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.35, metalness: 0.8 });
     this.brakeLight = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1020, emissiveIntensity: 1.2, roughness: 0.3 });
     this.numberMat = new THREE.MeshBasicMaterial({ map: numberTexture(number), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
     this.number = number;
@@ -189,8 +195,8 @@ export class OpenWheelModel {
       const wx = x * spec.track / 2, wz = z * spec.wheelbase / 2;
       const pivot = new THREE.Group(), spin = new THREE.Group();
       const tyre = new THREE.Mesh(new THREE.CylinderGeometry(R, R, w, 32, 1).rotateZ(Math.PI / 2), tyreM); tyre.castShadow = true;
-      const rim = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.66, R * 0.66, w + 0.01, 24, 1, true).rotateZ(Math.PI / 2), metal);
-      const face = new THREE.Mesh(new THREE.CircleGeometry(R * 0.66, 24).rotateY(x * Math.PI / 2).translate(x * (w / 2 + 0.006), 0, 0), dark);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.66, R * 0.66, w + 0.01, 24, 1, true).rotateZ(Math.PI / 2), rimMat);
+      const face = new THREE.Mesh(new THREE.CircleGeometry(R * 0.66, 24).rotateY(x * Math.PI / 2).translate(x * (w / 2 + 0.006), 0, 0), rimMat);
       const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 12).rotateZ(Math.PI / 2).translate(x * (w / 2 + 0.02), 0, 0), metal);
       spin.add(tyre, rim, face, hub);
       pivot.add(spin);
@@ -211,6 +217,9 @@ export class OpenWheelModel {
     this.root.add(shadow);
   }
 
+  /** the body shell, built in the ground frame: crash dents go here (render/damage.ts) */
+  get bodyShell() { return this.shell; }
+
   get paintName() { return PAINTS[this.paintIndex].name; }
 
   nextPaint() {
@@ -226,6 +235,20 @@ export class OpenWheelModel {
     this.numberMat.map?.dispose();
     this.numberMat.map = numberTexture(n);
     this.numberMat.needsUpdate = true;
+  }
+
+  /** the livery on the paint (the race number has its own decals on this car) */
+  setLivery(cfg: LiveryConfig) {
+    if (!this.livery || this.livery.material !== this.paint) this.livery = new Livery(this.paint, OPEN_WHEEL_SHAPE);
+    this.livery.set(cfg);
+  }
+
+  setSoot(v: number) { if (this.livery) this.livery.soot = v; }
+
+  /** garage parts: only the rim colour applies to a single-seater */
+  setParts(p: { rims: RimStyle; rimColor: number; wing: WingStyle; glass: number; glow: number }) {
+    this.rimMat.color.setHex(p.rimColor);
+    this.rimMat.metalness = p.rims === 'painted' ? 0.3 : 0.8;
   }
 
   setNight(night: boolean) { this.brakeLight.emissiveIntensity = night ? 2 : 1.2; }

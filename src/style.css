@@ -90,7 +90,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; use
 .overlay.title { background: linear-gradient(180deg, rgba(6, 9, 14, 0.15) 0%, rgba(6, 9, 14, 0.1) 35%, rgba(6, 9, 14, 0.88) 100%); justify-content: flex-start; padding: 16px 16px 5vh; overflow-y: auto; }
 /* pushed to the bottom with an auto margin rather than flex-end, so a tall card can still scroll up to its top */
 .overlay.title > :first-child { margin-top: auto; }
-.overlay.boot { background: #0b0f14; justify-content: center; }
+.overlay.boot { background: radial-gradient(ellipse at 50% 30%, #13202e 0%, #0b0f14 70%); justify-content: center; z-index: 50; gap: 14px; }
+.overlay.boot > :last-child { margin-bottom: auto; }
+.boot-label { font-size: 11px; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+.boot-tip, .boot-news { width: min(560px, 100%); background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 12px 16px; text-align: left; }
+.boot-tip { margin-top: 18px; }
+.boot-tip-text { font-size: 16px; line-height: 1.4; min-height: 2.8em; }
+.news-day + .news-day { margin-top: 12px; }
+.news-date { font-size: 13px; font-weight: 700; color: var(--dim); }
+.news ul { margin: 6px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.45; }
+.news li + li { margin-top: 4px; }
+.card.news-card { max-width: 620px; text-align: left; }
+.card.news-card h2 { text-align: center; }
+.news-btn { margin-top: 10px; }
 .brand { font-size: clamp(48px, 9vw, 112px); font-weight: 900; letter-spacing: 0.32em; margin-right: -0.32em; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.5); }
 .tag { color: var(--dim); letter-spacing: 3px; font-size: 15px; }
 .prompt { margin-top: 18px; font-size: 18px; font-weight: 700; letter-spacing: 2px; color: var(--accent); opacity: 0; }
@@ -257,7 +269,9 @@ body:not(.touch-mode) .touch, body:not(.in-session) .touch, .touch.hidden { disp
 .tilt-dot { position: absolute; left: 50%; top: 3px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: var(--accent); }
 .tilt-hint { position: absolute; bottom: 34px; left: 0; font-size: 12px; color: var(--dim); }
 .touch[data-steering="tilt"] .steer-area { flex-direction: column; align-items: stretch; }
-.jets { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(max(16px, env(safe-area-inset-bottom)) + 262px); display: flex; gap: 12px; }
+.jets { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(max(16px, env(safe-area-inset-bottom)) + 262px); display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.jet-row { display: flex; gap: 12px; }
+.jet-btn.side { width: 60px; height: 60px; font-size: 15px; letter-spacing: -2px; }
 .jet-btn { width: 70px; height: 70px; border-radius: 50%; border: 1px solid rgba(56, 232, 255, 0.5); background: rgba(8, 12, 18, 0.6); color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 1px;
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .pedal-side { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
@@ -287,6 +301,7 @@ body.touch-mode .air { left: 16px; right: auto; bottom: 140px; transform: scale(
 @media (max-height: 500px) {
   .readout-touch b { font-size: 17px; } .readout-touch div { min-width: 48px; }
   .pedal-row .tyres .tyre { height: 30px; } .slider { height: 76px; } .slider-thumb { width: 62px; height: 62px; }
+  .jets { flex-direction: row; align-items: center; } .jet-btn { width: 58px; height: 58px; } .jet-btn.side { width: 50px; height: 50px; }
   body.touch-mode .mapwrap { display: none; }
 }
 .overlay.paused { overflow-y: auto; padding: 16px; justify-content: safe center; }
@@ -348,3 +363,50 @@ body.in-test .hud .air, body.in-test .hud .timing, body.in-test .touch .jets { d
 .targets { display: grid; gap: 6px; }
 .target { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
 .target.mine { outline: 1px solid var(--accent); }
+
+/* Performance: a backdrop blur over the live 3D view is redrawn every frame, which costs a lot on an
+   iPad or a laptop's integrated graphics, so the HUD, menu tiles and touch controls use solid glass */
+.panel, .tile, .card, .pause-btn, .slider, .steer-btn, .jet-btn { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.panel, .pause-btn { background: rgba(8, 12, 18, 0.74); }
+.tile { background: rgba(10, 15, 22, 0.86); }
+.tile:hover, .tile:focus-visible { background: rgba(16, 28, 38, 0.92); }
+.card { background: rgba(10, 15, 22, 0.94); }
+.slider, .steer-btn, .jet-btn { background: rgba(8, 12, 18, 0.72); }
+/* ---- Fun Mode */
+.funpanel { top: 182px; left: 16px; padding: 10px 14px; min-width: 210px; display: flex; gap: 14px; align-items: center; }
+.funpanel.hidden { display: none; }
+.fun-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 74px; }
+.fun-item { width: 56px; height: 56px; border-radius: 12px; display: grid; place-items: center; font-size: 26px;
+  background: linear-gradient(135deg, rgba(255, 59, 59, .35), rgba(255, 176, 0, .3), rgba(47, 155, 255, .35)); border: 1px solid rgba(255, 255, 255, .25); }
+.fun-item:empty::after { content: '?'; color: rgba(255, 255, 255, .35); font-weight: 900; }
+.fun-item.pop { animation: itempop .35s ease-out; }
+@keyframes itempop { 0% { transform: scale(.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+.fun-item-name { font-size: 11px; color: var(--dim); text-align: center; letter-spacing: .5px; }
+.fun-stats { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.fun-stats .row { display: flex; justify-content: space-between; gap: 12px; font-size: 18px; font-weight: 800; }
+.fun-stats .label { color: #ff9a3c; letter-spacing: 2px; font-size: 11px; padding-top: 4px; }
+.tile-fun { background: linear-gradient(135deg, rgba(255, 90, 20, 0.35), rgba(255, 45, 149, 0.22), rgba(10, 15, 22, 0.75)); border-color: rgba(255, 120, 40, 0.6); }
+.tile-garage { background: linear-gradient(135deg, rgba(155, 75, 255, 0.28), rgba(10, 15, 22, 0.75)); border-color: rgba(155, 75, 255, 0.5); }
+.fun-switches { gap: 18px 28px; }
+body:not(.in-fun) .touch .fun-only { display: none; }
+.jet-btn.item { font-size: 24px; letter-spacing: 0; border-color: rgba(255, 150, 40, .7); color: #ffb04a; }
+.jet-btn.item.empty { font-size: 12px; opacity: .45; }
+@media (max-height: 560px) { .funpanel { top: 150px; padding: 6px 10px; } .fun-item { width: 40px; height: 40px; font-size: 20px; } }
+
+/* ---- Garage */
+body.garage-open .overlay.title { background: linear-gradient(90deg, rgba(6, 9, 14, 0.82) 0%, rgba(6, 9, 14, 0.55) 34%, rgba(6, 9, 14, 0) 60%); align-items: flex-start; }
+body.garage-open .title .brand, body.garage-open .title .tag, body.garage-open .title .showroom-link { display: none; }
+body.garage-open .title .menu { align-items: flex-start; margin-top: 0; }
+body.garage-open .overlay.title > :first-child { margin-top: 0; }
+.garage-card { max-width: 470px; gap: 10px; padding: 18px 20px; }
+.garage-card h2 { text-align: left; }
+.garage-card > p { text-align: left; }
+.garage-h { margin: 6px 0 0; font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); }
+.garage-card .seg { flex-wrap: wrap; }
+.garage-card .small { font-size: 12px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+.swatch-btn { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .25); background: var(--c); cursor: pointer; padding: 0; }
+.swatch-btn.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+.swatch-custom { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); cursor: pointer; }
+.swatch-pick { width: 34px; height: 30px; border: none; background: none; padding: 0; cursor: pointer; }
+@media (max-width: 700px) { body.garage-open .overlay.title { background: rgba(6, 9, 14, 0.5); align-items: center; } }

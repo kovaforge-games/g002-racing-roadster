@@ -36,6 +36,7 @@ export class Hud {
   readonly results: HTMLElement;
   private wheel: HTMLElement; private wheelGear: HTMLElement; private wheelRpm: HTMLElement; private wheelKmh: HTMLElement;
   private tyres: HTMLElement[] = [];
+  private fun: HTMLElement; private funItem: HTMLElement; private funItemName: HTMLElement; private funStunt: HTMLElement; private funRings: HTMLElement;
 
   constructor(private track: Track) {
     document.body.appendChild(this.root);
@@ -115,6 +116,15 @@ export class Hud {
     }
     this.testBar = el('div', 'fill', el('div', 'test-bar', this.test));
 
+    // Fun Mode: the item you hold, your stunt points and rings of fire, under the timing panel
+    this.fun = el('div', 'panel funpanel hidden', this.root);
+    const slot = el('div', 'fun-slot', this.fun);
+    this.funItem = el('div', 'fun-item', slot);
+    this.funItemName = el('div', 'fun-item-name', slot, 'No item');
+    const stats = el('div', 'fun-stats', this.fun);
+    const stat = (label: string) => { const r = el('div', 'row', stats); el('span', 'label', r, label); return el('span', 'value', r, '0'); };
+    this.funStunt = stat('STUNT'); this.funRings = stat('RINGS');
+
     this.toast = el('div', 'toast', this.root);
     this.lights = el('div', 'startlights', this.root);
     for (let k = 0; k < 5; k++) this.lightDots.push(el('div', 'light', this.lights));
@@ -135,20 +145,22 @@ export class Hud {
         <tr><td>Steer</td><td>A D or ← → · left stick</td></tr>
         <tr><td>Reverse</td><td>hold brake when stopped</td></tr>
         <tr><td>Boost (rear jets)</td><td>Shift · B</td></tr>
-        <tr><td>Hop (underbody jets)</td><td>E or Enter · A</td></tr>
+        <tr><td>Jump (hold to hover)</td><td>Space or Enter · A</td></tr>
+        <tr><td>Side thrusters: dodge, or flip in the air</td><td>Q E · LB RB</td></tr>
         <tr><td>In the air: pitch / yaw</td><td>W S / A D · triggers, stick</td></tr>
-        <tr><td>In the air: roll</td><td>hold Space + A D · RB + stick</td></tr>
-        <tr><td>Handbrake</td><td>Space · RB</td></tr>
-        <tr><td>Look back</td><td>B · LB</td></tr>
+        <tr><td>Handbrake</td><td>X or Ctrl · X</td></tr>
+        <tr><td>Look back</td><td>B · left stick click</td></tr>
         <tr><td>Camera</td><td>C · Y</td></tr>
-        <tr><td>Reset to track</td><td>R · Back</td></tr>
-        <tr><td>Paint colour</td><td>P · X</td></tr>
+        <tr><td>Call the tow (back to the track)</td><td>R · Back</td></tr>
+        <tr><td>Use item (Fun Mode)</td><td>F · d-pad up</td></tr>
+        <tr><td>Paint colour</td><td>P</td></tr>
         <tr><td>Driving help</td><td>1 Easy · 2 Medium · 3 Off</td></tr>
         <tr><td>Time of day</td><td>T</td></tr>
         <tr><td>Mute</td><td>M</td></tr>
         <tr><td>Pause</td><td>Esc · Start</td></tr>
       </table>
-      <p>Boost, hops and air control all use the air tank. Drive through the glowing canisters to refill it.</p>
+      <p>Boost, jumps, hovering, the side thrusters and air control all use the air tank. Drive through the glowing canisters to refill it.</p>
+      <p>Fun Mode: fly off the red ramps, drive through the rings of fire on the road and jump through the raised ones (don't touch the flames!), hit the blue boost pads and grab item boxes.</p>
       <p>Press H to close</p>`;
     this.results = el('div', 'overlay results hidden', document.body);
     this.paused = el('div', 'overlay paused hidden', document.body);
@@ -246,6 +258,17 @@ export class Hud {
     this.lap.textContent = r.lap === 0 ? 'START' : r.lap > r.laps ? 'FINISHED' : `LAP ${r.lap}/${r.laps}`;
     const html = r.field.map(f => `<div class="row${f.you ? ' you' : ''}"><b>${f.pos}</b><i style="background:${f.color}"></i><span>${f.name}</span><em>${f.gap}</em></div>`).join('');
     if (this.rows.innerHTML !== html) this.rows.innerHTML = html;
+  }
+
+  /** Fun Mode: the item held (icon, name, charges), stunt points and rings; null hides it */
+  setFun(f: { icon: string; name: string; charges: number; stunt: number; rings: number } | null) {
+    this.fun.classList.toggle('hidden', !f);
+    if (!f) return;
+    const name = f.charges > 1 ? `${f.name} ×${f.charges}` : f.name;
+    if (this.funItem.textContent !== f.icon) { this.funItem.textContent = f.icon; this.funItem.classList.remove('pop'); void this.funItem.offsetWidth; if (f.icon) this.funItem.classList.add('pop'); }
+    if (this.funItemName.textContent !== name) this.funItemName.textContent = name;
+    this.funStunt.textContent = f.stunt.toLocaleString('en-US');
+    this.funRings.textContent = String(f.rings);
   }
 
   /** a license test: its name, the clock, the medal times (each greys out once it's gone) and

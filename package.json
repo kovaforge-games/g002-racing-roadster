@@ -17,6 +17,7 @@
     "sim-test": "tsx scripts/sim-test.ts",
     "track-check": "tsx scripts/track-check.ts",
     "browser-test": "node scripts/browser-test.mjs",
+    "crash-shots": "node scripts/crash-shots.mjs",
     "build:kovaforge": "tsc --noEmit && BASE=/games/g002/ vite build --outDir dist-cf/games/g002 --emptyOutDir",
     "deploy:kovaforge": "npm run build:kovaforge && wrangler deploy"
   },

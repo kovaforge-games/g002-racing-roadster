@@ -20,10 +20,30 @@ export const TOD: Record<TimeOfDay, TodPreset> = {
   night: { elev: 62, azim: 200, sun: 0xe6edff, sunI: 2.1, hemiSky: 0x8ea6d8, hemiGround: 0x222226, hemiI: 0.7, fog: 0x0a0d16, fogDensity: 0.0009, exposure: 1.05, bloom: 0.8, trackTemp: 22, envI: 0.6, turbidity: 1, rayleigh: 0.2, night: true },
 };
 
-export const SHADOW_SIZE: Record<Quality, number> = { low: 0, medium: 1024, high: 2048, ultra: 4096 };
+export const SHADOW_SIZE: Record<Quality, number> = { low: 1024, medium: 1024, high: 2048, ultra: 4096 };
 
-/** soft cumulus puffs on a transparent tile (grey and dense for rain) */
-function cloudTexture(wet: boolean) {
+/** each time of day's reflection map, made once: rebuilding it compiled the blur shaders again and
+ *  stalled the game on every time-of-day change */
+const envMaps = new Map<string, THREE.WebGLRenderTarget>();
+function envMap(renderer: THREE.WebGLRenderer, key: string, fill: (scene: THREE.Scene) => number) {
+  let target = envMaps.get(key);
+  if (!target) {
+    const pm = new THREE.PMREMGenerator(renderer);
+    const envScene = new THREE.Scene();
+    const blur = fill(envScene);
+    target = pm.fromScene(envScene, blur);
+    disposeResources(envScene);
+    pm.dispose();
+    envMaps.set(key, target);
+  }
+  return target;
+}
+
+const clouds = new Map<boolean, HTMLCanvasElement>();
+/** soft cumulus puffs on a transparent tile (grey and dense for rain), drawn once */
+function cloudCanvas(wet: boolean) {
+  const made = clouds.get(wet);
+  if (made) return made;
   const cv = document.createElement('canvas'); cv.width = cv.height = 512;
   const c = cv.getContext('2d')!;
   let seed = 7;
@@ -40,9 +60,8 @@ function cloudTexture(wet: boolean) {
       }
     }
   }
-  const t = new THREE.CanvasTexture(cv);
-  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4, 4);
-  return t;
+  clouds.set(wet, cv);
+  return cv;
 }
 
 export class Environment {
@@ -95,7 +114,8 @@ export class Environment {
         const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
         scene.background = t;
         // a cheap cloud layer high above (the physical sky shader draws its own clouds)
-        const ct = cloudTexture(wet);
+        const ct = new THREE.CanvasTexture(cloudCanvas(wet));
+        ct.colorSpace = THREE.SRGBColorSpace; ct.wrapS = ct.wrapT = THREE.RepeatWrapping; ct.repeat.set(4, 4);
         this.clouds = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000).rotateX(Math.PI / 2),
           new THREE.MeshBasicMaterial({ map: ct, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide, opacity: wet ? 0.95 : 0.85 }));
         this.clouds.renderOrder = -2;
@@ -113,8 +133,6 @@ export class Environment {
         scene.add(sky);
       }
       // reflections from a soft gradient sky (the physical sky shader is far too bright for IBL)
-      const pm = new THREE.PMREMGenerator(renderer);
-      const envScene = new THREE.Scene();
       const top = new THREE.Color(p.hemiSky), horizon = new THREE.Color(p.fog), ground = new THREE.Color(p.hemiGround);
       const g = new THREE.SphereGeometry(100, 32, 16);
       const col: number[] = [];
@@ -125,19 +143,20 @@ export class Environment {
         col.push(c.r, c.g, c.b);
       }
       g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-      envScene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
       // the same gradient stands in for the over-bright physical sky in live reflections
       this.backdrop = new THREE.Mesh(g.clone().scale(80, 80, 80), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
       this.backdrop.visible = false; this.backdrop.renderOrder = -3;
       scene.add(this.backdrop);
-      const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(6, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(p.sun).multiplyScalar(6) }));
-      sunDisc.position.copy(this.sunDir).multiplyScalar(90);
-      envScene.add(sunDisc);
-      this.envTarget = pm.fromScene(envScene, 0.03);
+      this.envTarget = envMap(renderer, `${tod}-${wet}`, envScene => {
+        envScene.add(new THREE.Mesh(g.clone(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+        const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(6, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(p.sun).multiplyScalar(6) }));
+        sunDisc.position.copy(this.sunDir).multiplyScalar(90);
+        envScene.add(sunDisc);
+        return 0.03;
+      });
+      g.dispose();
       scene.environment = this.envTarget.texture;
-      disposeResources(envScene);
       scene.environmentIntensity = p.envI;
-      pm.dispose();
     } else {
       scene.background = new THREE.Color(0x05070d);
       const n = 2500, pos = new Float32Array(n * 3);
@@ -150,21 +169,24 @@ export class Environment {
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       this.stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, fog: false }));
       scene.add(this.stars);
-      const pm = new THREE.PMREMGenerator(renderer);
-      const envScene = new THREE.Scene();
-      envScene.background = new THREE.Color(0x0c1020);
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(40, 8, 8), new THREE.MeshBasicMaterial({ color: 0xfff2d6 }));
-      lamp.position.set(0, 300, 0); envScene.add(lamp);
-      this.envTarget = pm.fromScene(envScene, 0.04);
+      this.envTarget = envMap(renderer, `${tod}-${wet}`, envScene => {
+        envScene.background = new THREE.Color(0x0c1020);
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(40, 8, 8), new THREE.MeshBasicMaterial({ color: 0xfff2d6 }));
+        lamp.position.set(0, 300, 0); envScene.add(lamp);
+        return 0.04;
+      });
       scene.environment = this.envTarget.texture;
-      disposeResources(envScene);
       scene.environmentIntensity = p.envI;
-      pm.dispose();
     }
   }
 
   dispose() {
-    this.envTarget.dispose();
+    // take everything this environment added out of the scene: lights left behind pile up on every
+    // time-of-day change, recompiling every material and adding a shadow pass each time
+    this.scene.remove(this.sun, this.sun.target, this.hemi);
+    for (const o of [this.sky, this.stars, this.clouds, this.backdrop]) if (o) this.scene.remove(o);
+    if (this.scene.background instanceof THREE.Texture) this.scene.background.dispose();
+    // the reflection map stays cached for the next visit to this time of day
     this.scene.environment = null;
     this.sun.dispose();
     if (this.sky) disposeResources(this.sky);

@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CAR, type Car } from '../sim/car';
 import { ARCH_DEPTH, ARCH_REACH, R, WHEEL_R, WHEEL_X, WHEEL_Z, Projector, archY, beltAt, bodyGeometry, line, rockerAt, widthAt } from './carBody';
+import { Livery, ROADSTER_SHAPE, type LiveryConfig } from './livery';
+import type { RimStyle, WingStyle } from '../core/garage';
 
 export const PAINTS = [
   { name: 'Anodised White', color: 0xe6e8e6, metalness: 0.2, roughness: 0.34 },
@@ -107,6 +109,16 @@ function fanTexture() {
   return t;
 }
 
+/** a soft neon pool of light for the underglow */
+function glowTexture() {
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
+  const c = cv.getContext('2d')!;
+  const g = c.createRadialGradient(64, 128, 8, 64, 128, 128);
+  g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(0.45, 'rgba(255,255,255,0.45)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(0, 0, 128, 256);
+  return new THREE.CanvasTexture(cv);
+}
+
 function shadowTexture() {
   const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
   const c = cv.getContext('2d')!;
@@ -181,12 +193,19 @@ export class CarModel {
   private reflective: THREE.MeshStandardMaterial[] = [];
   private paintIndex = 0;
   private roll = 0; private pitch = 0;
+  // garage parts: the glass, the rims, the underglow and how the wing behaves
+  private glass: THREE.MeshPhysicalMaterial;
+  private rimSpoke!: THREE.MeshPhysicalMaterial; private rimInsert!: THREE.MeshPhysicalMaterial;
+  private glowMat: THREE.MeshBasicMaterial; private glow: THREE.Mesh;
+  private glowOn = false;
+  private wingStyle: WingStyle = 'active';
+  private livery: Livery | null = null;
 
   constructor() {
     const p = PAINTS[0];
     this.paint = new THREE.MeshPhysicalMaterial({ color: p.color, metalness: p.metalness, roughness: p.roughness, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1.15 });
     // gold-tinted glass, like a visor: mostly reflection, with the cabin showing through
-    const glass = new THREE.MeshPhysicalMaterial({ color: 0x7a5c22, metalness: 0.45, roughness: 0.03, envMapIntensity: 1.5, clearcoat: 1, clearcoatRoughness: 0.02, transparent: true, opacity: 0.62 });
+    const glass = this.glass = new THREE.MeshPhysicalMaterial({ color: 0x7a5c22, metalness: 0.45, roughness: 0.03, envMapIntensity: 1.5, clearcoat: 1, clearcoatRoughness: 0.02, transparent: true, opacity: 0.62 });
     const lower = new THREE.MeshPhysicalMaterial({ color: 0x0b0b0c, roughness: 0.32, metalness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.2 });
     const trim = new THREE.MeshStandardMaterial({ color: 0x0c0c0d, roughness: 0.7 });
 
@@ -209,8 +228,8 @@ export class CarModel {
 
     // wheels: 20" at the front and 21" at the rear, on wider rear tyres
     const tyreM = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.9 });
-    const spokeM = new THREE.MeshPhysicalMaterial({ color: 0x0e0f11, metalness: 0.5, roughness: 0.3, clearcoat: 0.8 });
-    const insertM = new THREE.MeshPhysicalMaterial({ color: 0xe9eae7, metalness: 0.1, roughness: 0.35, clearcoat: 0.6 });
+    const spokeM = this.rimSpoke = new THREE.MeshPhysicalMaterial({ color: 0x0e0f11, metalness: 0.5, roughness: 0.3, clearcoat: 0.8 });
+    const insertM = this.rimInsert = new THREE.MeshPhysicalMaterial({ color: 0xe9eae7, metalness: 0.1, roughness: 0.35, clearcoat: 0.6 });
     this.reflective.push(spokeM, insertM);
     const axles = { front: wheelGeometries(WHEEL_R.front, 0.295), rear: wheelGeometries(WHEEL_R.rear, 0.335) };
     for (const [x, z] of [[WHEEL_X, WHEEL_Z], [-WHEEL_X, WHEEL_Z], [WHEEL_X, -WHEEL_Z], [-WHEEL_X, -WHEEL_Z]]) {
@@ -235,6 +254,36 @@ export class CarModel {
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 5.0), new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, opacity: 0.85 }));
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = -CAR.comHeight + 0.045; shadow.renderOrder = 1;
     this.root.add(shadow);
+
+    // underglow: neon light on the road under the car (off until fitted in the garage)
+    this.glowMat = new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0x2fe6ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.9 });
+    this.glow = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 6.2), this.glowMat);
+    this.glow.rotation.x = -Math.PI / 2; this.glow.position.y = -CAR.comHeight + 0.05; this.glow.renderOrder = 1;
+    this.glow.visible = false;
+    this.root.add(this.glow);
+  }
+
+  /** the livery on the paint: a pattern, its second colour and the race number (a copy of the
+   *  model makes its own, since it has its own paint) */
+  setLivery(cfg: LiveryConfig) {
+    if (!this.livery || this.livery.material !== this.paint) this.livery = new Livery(this.paint, ROADSTER_SHAPE);
+    this.livery.set(cfg);
+  }
+
+  /** soot on the paint after brushing a ring of fire, 0..1 */
+  setSoot(v: number) { if (this.livery) this.livery.soot = v; }
+
+  /** garage parts: rim style and colour, the wing, the glass tint and the underglow (0 = off) */
+  setParts(p: { rims: RimStyle; rimColor: number; wing: WingStyle; glass: number; glow: number }) {
+    const dark = 0x15161a;
+    this.rimSpoke.color.setHex(p.rims === 'painted' ? dark : p.rimColor);
+    this.rimInsert.color.setHex(p.rims === 'aero' ? 0xe9eae7 : p.rims === 'open' ? dark : p.rimColor);
+    this.rimSpoke.metalness = this.rimInsert.metalness = p.rimColor === 0xc9ced4 || p.rimColor === 0xd4a72c ? 0.9 : 0.4;
+    this.wingStyle = p.wing;
+    this.glass.color.setHex(p.glass);
+    this.glowOn = p.glow !== 0;
+    this.glow.visible = this.glowOn;
+    if (this.glowOn) this.glowMat.color.setHex(p.glow);
   }
 
   /** everything that sits on the paint, projected onto the body so it follows its facets */
@@ -320,6 +369,17 @@ export class CarModel {
     for (const m of this.reflective) { m.envMap = tex; m.needsUpdate = true; }
   }
 
+  /** the body shell, built in the ground frame: crash dents go here (render/damage.ts) */
+  get bodyShell() { return this.shell; }
+
+  /** the flying tow car: fold the wheels flat under the body as hover pods (0 on the road, 1 flat) */
+  hoverWheels(t: number) {
+    for (const w of this.wheels) w.pivot.rotation.set(0, 0, (w.left ? -1 : 1) * t * Math.PI / 2);
+  }
+
+  /** the wheel pivots, for the tow car's hover jets */
+  get wheelPivots() { return this.wheels.map(w => w.pivot); }
+
   get paintName() { return PAINTS[this.paintIndex].name; }
 
   nextPaint() {
@@ -328,7 +388,7 @@ export class CarModel {
     this.paint.color.setHex(p.color); this.paint.metalness = p.metalness; this.paint.roughness = p.roughness;
   }
 
-  setNight(night: boolean) { this.headLight.emissiveIntensity = night ? 4 : 0.6; }
+  setNight(night: boolean) { this.headLight.emissiveIntensity = night ? 4 : 0.6; this.glowMat.opacity = night ? 1 : 0.65; }
 
   /** sync wheels, lights, the wing and the body's roll/pitch with the physics car */
   update(car: Car, braking: boolean, dt: number) {
@@ -342,10 +402,10 @@ export class CarModel {
     this.brakeLight.emissiveIntensity = braking ? 5 : 1.2;
     // the spoiler pops up above about 80 km/h and stows below about 60; once up it stands up as
     // an airbrake under hard braking and trims flat for low drag at very high speed
-    const up = car.speed > 22 || (this.spoilerUp && car.speed > 16);
-    if (up !== this.spoilerUp) { this.spoilerUp = up; this.onSpoiler?.(up); }
+    const up = this.wingStyle === 'fixed' || (this.wingStyle === 'active' && (car.speed > 22 || (this.spoilerUp && car.speed > 16)));
+    if (up !== this.spoilerUp) { this.spoilerUp = up; if (this.wingStyle === 'active') this.onSpoiler?.(up); }
     this.wingLift += ((up ? 1 : 0) - this.wingLift) * Math.min(1, dt * 4);
-    const angle = !up ? 0 : braking && car.speed > 25 ? 1.05 : car.speed > 55 ? 0.03 : 0.14;
+    const angle = !up ? 0 : this.wingStyle === 'fixed' ? 0.22 : braking && car.speed > 25 ? 1.05 : car.speed > 55 ? 0.03 : 0.14;
     this.wingAngle += (angle * Math.min(1, this.wingLift * 1.5) - this.wingAngle) * Math.min(1, dt * 5);
     this.poseWing();
     // visual load transfer: the physics centre of mass is low, so add the roll a real car shows
