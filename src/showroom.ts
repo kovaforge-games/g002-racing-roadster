@@ -1,19 +1,19 @@
 // Showroom: the car alone on a turntable in a studio, lit by soft boxes, to look at up close.
-// Open with ?showroom or #showroom. Drag to orbit, scroll to zoom; P changes the paint, S raises the spoiler,
+// Open with ?showroom or #showroom (?showroom&car=0x2.5 for another class). Drag to orbit, scroll to zoom; P changes the paint, S raises the spoiler,
 // N toggles the lights, and Enter goes to the track.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Renderer } from './render/renderer';
-import { CarModel } from './render/carModel';
-import { CAR } from './sim/car';
+import { buildModel, type BodyModel } from './render/models';
+import { CLASSES, type ClassId } from './sim/classes';
 import type { Quality } from './render/graphics';
 
 export class Showroom {
   readonly scene = new THREE.Scene();
   readonly renderer: Renderer;
   readonly camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 200);
-  readonly model = new CarModel();
+  readonly model: BodyModel;
   private controls: OrbitControls;
   private turntable = new THREE.Group();
   private spoiler = false;
@@ -22,7 +22,8 @@ export class Showroom {
   /** test hook: stop the turntable and auto-orbit at a fixed angle (radians) */
   angle: number | null = null;
 
-  constructor(container: HTMLElement, quality: Quality = 'ultra') {
+  constructor(container: HTMLElement, quality: Quality = 'ultra', cls: ClassId = 'rental') {
+    this.model = buildModel(cls);
     this.renderer = new Renderer(container);
     this.renderer.configure({ graphicsMode: 'custom', quality, resolutionScale: 1, shadows: true, postfx: true });
     const gl = this.renderer.gl;
@@ -60,7 +61,7 @@ export class Showroom {
     this.scene.add(key, rim, fill, new THREE.HemisphereLight(0xdfe8ff, 0x1a1b1e, 0.35));
 
     // the car stands on the turntable; its origin is the centre of mass
-    this.model.root.position.y = CAR.comHeight + 0.04;
+    this.model.root.position.y = CLASSES[cls].spec.comHeight + 0.04;
     this.model.root.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
     this.turntable.add(this.model.root);
 

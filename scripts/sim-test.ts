@@ -3,7 +3,7 @@
 // non-zero if the car spins, flips or keeps hitting walls.
 //   npm run sim-test
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Car, type CarInputs } from '../src/sim/car';
+import { CAR, Car, type CarInputs } from '../src/sim/car';
 import { applyDrivingHelp, HELP_STABILITY, type DrivingHelp } from '../src/sim/assist';
 import { Track } from '../src/sim/track';
 import { Autopilot } from '../src/sim/autopilot';
@@ -12,9 +12,17 @@ import { Terrain } from '../src/sim/terrain';
 import { buildWorld, initPhysics, PHYSICS_DT } from '../src/sim/world';
 import { Jets, JETS, type JetInputs } from '../src/sim/jets';
 import { Canisters } from '../src/sim/canisters';
-import { Race, RACE_LAPS } from '../src/sim/race';
+import { Race, RACE_LAPS, MAX_OPPONENTS, type RaceOptions } from '../src/sim/race';
+import { CLASSES, CLASS_ORDER, type ClassId } from '../src/sim/classes';
+import { newRun, scoreRound, standings, isOver } from '../src/sim/championship';
+import { LICENSES, medalFor, medalTime } from '../src/sim/licenses';
+import { referenceTime, referenceLap } from './license-times';
+import { LAP_REF, qualifyingOrder } from '../src/sim/weekend';
 
 await initPhysics();
+// the bots roll dice (mistakes, passing, boosting): seed them so every run of this test is the same
+let seed = 20261024;
+Math.random = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const dt = PHYSICS_DT;
 const kmh = (v: number) => (v * 3.6).toFixed(0);
 let failed = false;
@@ -83,7 +91,7 @@ const check = (ok: boolean, msg: string) => { console.log(`${ok ? '  ok ' : 'FAI
   run({ ...idle, throttle: 1 }, { ...none, boost: true }, () => jets.tank <= 0);
   const vMax = car.speed;
   console.log(`boost until empty: ${kmh(vMax)} km/h`);
-  check(jets.tank === 0 && vMax < JETS.boostMaxSpeed + 1, 'boost drains the tank and stays under its speed cap');
+  check(jets.tank === 0 && vMax < CAR.topSpeed + JETS.boostMaxSpeed + 1, 'boost drains the tank and stays under its speed cap');
 
   // hop from rest with a full tank: height and air time
   car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
@@ -178,12 +186,12 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
     check(r.wallHits <= 2, `${driver}/${help}: at most 2 wall hits`);
   }
 }
-// ---- a race against the AI rivals, with the line-following driver in the player's car
-{
+// ---- races against the AI rivals, with the line-following driver in the player's car
+function runRace(opts: RaceOptions) {
   const world = buildWorld(track, terrain);
   const canisters = new Canisters(track);
   const car = new Car(world, 0, 0, 0, 0), jets = new Jets();
-  const race = new Race(track, world, canisters, car, jets);
+  const race = new Race(track, world, canisters, car, jets, opts);
   const pilot = new Autopilot(track);
   pilot.keyboard = true; pilot.aggression = 1.06;
   const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
@@ -191,7 +199,7 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
   race.go();
   const boost = new Map<string, number>(), air = new Map<string, number>();
   let t = 0;
-  while (t < 300 && !race.allFinished) {
+  while (t < 150 * race.laps && !race.allFinished) {
     const p = race.player;
     updateSurface(car, track, p.hint);
     const inp = applyDrivingHelp('easy', pilot.drive(car, p.hint, p.s, dt), car);
@@ -202,10 +210,16 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
       if (e.gotAir) air.set(e.name, (air.get(e.name) ?? 0) + e.gotAir);
     }
   }
+  console.log(`${race.rivals.length} rivals, ${race.difficulty}, ${race.laps} laps:`);
   for (const e of race.standings) {
-    console.log(`P${e.pos} ${e.name.padEnd(14)} ${e.finishTime?.toFixed(1) ?? 'dnf'} s, best lap ${e.bestLap?.toFixed(1) ?? '-'} s` +
+    console.log(`  P${e.pos} ${e.name.padEnd(25)} ${e.finishTime?.toFixed(1) ?? 'dnf'} s, best lap ${e.bestLap?.toFixed(1) ?? '-'} s` +
       (e.driver ? `, boost ${(boost.get(e.name) ?? 0).toFixed(1)} s, air picked up ${((air.get(e.name) ?? 0) * 100).toFixed(0)}%, resets ${e.resets}` : ''));
   }
+  world.free();
+  return { race, boost, air };
+}
+{
+  const { race, boost, air } = runRace({ opponents: 5, laps: RACE_LAPS, difficulty: 'expert' });
   const rivals = race.rivals;
   const times = race.entrants.map(e => e.finishTime ?? Infinity);
   check(race.allFinished, `race: everyone finishes ${RACE_LAPS} laps`);
@@ -214,6 +228,97 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
   check(rivals.every(e => e.bestLap !== null && e.bestLap > 55 && e.bestLap < 66), 'race: rival lap times between 55 and 66 s');
   check([...boost.values()].reduce((a, b) => a + b, 0) > 15, 'race: rivals use their boost');
   check([...air.values()].reduce((a, b) => a + b, 0) > 0.5, 'race: rivals pick up air canisters');
+  const temps = race.player.car.tyreTemp;
+  console.log(`tyres after the race: ${temps.map(t => t.toFixed(0)).join(' / ')} °C`);
+  check(temps.every(t => t > 60 && t < 125), 'race: tyres warm up into 60-125 °C');
+}
+// the full field of 11 bots, at the easiest and the hardest difficulty
+{
+  const avgBest = (r: Race) => r.rivals.reduce((a, e) => a + (e.bestLap ?? 99), 0) / r.rivals.length;
+  const newbie = runRace({ opponents: MAX_OPPONENTS, laps: 2, difficulty: 'newbie' }).race;
+  const pro = runRace({ opponents: MAX_OPPONENTS, laps: 2, difficulty: 'pro' }).race;
+  console.log(`average rival best lap: newbie ${avgBest(newbie).toFixed(1)} s, pro ${avgBest(pro).toFixed(1)} s`);
+  check(newbie.entrants.length === 12 && pro.allFinished && newbie.allFinished, 'full field: 12 cars, everyone finishes');
+  check(pro.rivals.reduce((a, e) => a + e.resets, 0) <= 4, 'full field: at most 4 rival resets');
+  check(avgBest(newbie) > avgBest(pro) + 6, 'newbie bots lap at least 6 s slower than pro bots');
+}
+
+// ---- the classes: straight-line numbers, then two laps of the bots racing in each
+{
+  const want: Record<ClassId, { t100: [number, number]; top: [number, number] }> = {
+    rental: { t100: [4, 6], top: [195, 215] }, '0x1.5': { t100: [2.3, 3], top: [250, 270] },
+    '0x2.5': { t100: [2, 2.7], top: [290, 310] }, '0x3.5': { t100: [1.8, 2.4], top: [330, 350] },
+  };
+  const laps: number[] = [];
+  for (const id of CLASS_ORDER) {
+    const spec = CLASSES[id].spec;
+    const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    world.timestep = dt;
+    world.createCollider(RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, -0.5, 0));
+    const car = new Car(world, 0, 0, -2500, 0, spec);
+    const run = (inp: CarInputs, until: (t: number) => boolean) => { let t = 0; while (!until(t) && t < 120) { car.step(inp); world.step(); t += dt; } return t; };
+    const full = { steer: 0, throttle: 1, brake: 0, handbrake: false };
+    run({ ...full, throttle: 0 }, t => t > 1);
+    const t100 = run(full, () => car.speed >= 100 / 3.6);
+    let topGear = 0;
+    run(full, t => { topGear = Math.max(topGear, car.gear); return t > 25; });
+    const top = car.speed * 3.6;
+    world.free();
+    const { race } = runRace({ opponents: 5, laps: 2, difficulty: 'expert', cls: id });
+    const best = Math.min(...race.rivals.map(e => e.bestLap ?? 99));
+    laps.push(best);
+    console.log(`${id}: 0-100 ${t100.toFixed(2)} s, top ${top.toFixed(0)} km/h${spec.gears ? `, gears up to ${topGear} of ${spec.gears}` : ''}, best bot lap ${best.toFixed(1)} s`);
+    check(t100 > want[id].t100[0] && t100 < want[id].t100[1] && top > want[id].top[0] && top < want[id].top[1], `${id}: 0-100 and top speed in range`);
+    check(spec.gears === 0 || topGear === spec.gears, `${id}: the gearbox shifts all the way up`);
+    check(race.allFinished && race.rivals.reduce((a, e) => a + e.resets, 0) <= 2, `${id}: everyone finishes, at most 2 bot resets`);
+  }
+  check(laps.every((t, k) => k === 0 || t < laps[k - 1] - 2), 'each class laps at least 2 s quicker than the one before');
+}
+
+// ---- championship scoring
+{
+  console.log('championship scoring:');
+  const run = newRun('0x1.5', 'club');
+  const names = ['A', 'B', 'You', 'C'];
+  scoreRound(run, names.map(name => ({ name })));
+  scoreRound(run, ['B', 'A', 'C', 'You'].map(name => ({ name })));
+  const table = standings(run);
+  check(run.points.A === 43 && run.points.B === 43 && run.points.You === 27 && run.points.C === 27, 'points 25-18-15-12 add up over two rounds');
+  check(table.length === 4 && table[0].points === 43, 'the standings list everyone, most points first');
+  const tie = { ...newRun('0x1.5', 'club'), points: { X: 26, Y: 26, Z: 26 }, finishes: { X: [3, 1], Y: [2, 2], Z: [1, 10] } };
+  check(standings(tie).map(r => r.name).join('') === 'XZY', 'a tie on points goes to more wins, then more seconds');
+  scoreRound(run, names.map(name => ({ name })));
+  check(isOver(run) && run.round === 3, 'the 0x1.5 Championship is over after 3 rounds');
+}
+
+// ---- license targets: the reference driver still makes each target, so the medals stay fair
+{
+  console.log('license tests (reference driver vs the stored time):');
+  for (const lic of LICENSES) for (const test of lic.tests) {
+    const t = referenceTime(lic, test);
+    const off = t === null ? Infinity : t / test.ref - 1;
+    console.log(`  ${lic.name.padEnd(16)} ${test.name.padEnd(20)} ${t?.toFixed(2) ?? 'dnf'} s (stored ${test.ref.toFixed(2)}, gold ${medalTime(test, 'gold').toFixed(1)}, silver ${medalTime(test, 'silver').toFixed(1)})`);
+    check(Math.abs(off) < 0.03, `${lic.name} / ${test.name}: reference time within 3% of the stored one (rerun scripts/license-times.ts after a handling change)`);
+    check(t !== null && medalFor(test, t) === 'gold', `${lic.name} / ${test.name}: the reference driver gets gold`);
+  }
+}
+
+// ---- race weekend: the bots' qualifying times, and the race grid from qualifying
+{
+  console.log('race weekend:');
+  for (const id of CLASS_ORDER) {
+    const t = referenceLap(id);
+    console.log(`  ${id.padEnd(8)} reference flying lap ${t?.toFixed(2) ?? 'dnf'} s (stored ${LAP_REF[id].toFixed(2)})`);
+    check(t !== null && Math.abs(t / LAP_REF[id] - 1) < 0.03, `${id}: flying lap within 3% of the stored one (rerun scripts/license-times.ts after a handling change)`);
+  }
+  const q = qualifyingOrder(null, 5, '0x1.5', 'club');
+  check(q.length === 6 && q[5].name === 'You' && q.slice(0, 5).every((r, k) => k === 0 || r.time! >= q[k - 1].time!), 'qualifying: quickest first, no time at the back');
+  const pole = qualifyingOrder(1, 5, '0x1.5', 'pro');
+  check(pole[0].name === 'You', 'qualifying: a quicker lap than every bot takes pole');
+  const world = buildWorld(track, terrain);
+  const car = new Car(world, 0, 0, 0, 0);
+  const race = new Race(track, world, new Canisters(track), car, new Jets(), { opponents: 5, grid: q.map(r => r.name) });
+  check(race.entrants.map(e => e.name).join() === q.map(r => r.name).join(), 'the race grid follows the qualifying order');
   world.free();
 }
 

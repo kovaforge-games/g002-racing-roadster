@@ -1,6 +1,8 @@
 // Heads-up display: speed and motor power, the air tank, lap timing, race position and
-// standings, a minimap, messages and overlays (title, help, pause, results).
+// standings, a minimap, the steering wheel with its gear, RPM and speed screen, the tyre
+// temperatures, messages and overlays (title, help, pause, results).
 import type { Track } from '../sim/track';
+import { tyreClass } from './touch';
 
 export function formatTime(t: number | null) {
   if (t === null || !isFinite(t)) return '–:––.–––';
@@ -24,13 +26,16 @@ export class Hud {
   private toast: HTMLElement; private toastTimer = 0;
   private map: HTMLCanvasElement; private mapBg: HTMLCanvasElement;
   private mapScale = 1; private mapOx = 0; private mapOz = 0;
-  private lights: HTMLElement; private lightDots: HTMLElement[] = [];
+  private lights: HTMLElement; private lightDots: HTMLElement[] = []; private countdown: HTMLElement;
   readonly title: HTMLElement; readonly help: HTMLElement; readonly paused: HTMLElement;
   private info: HTMLElement;
   private air: HTMLElement; private airFill: HTMLElement; private airPct: HTMLElement; private hopDot: HTMLElement; private airGain: HTMLElement;
   private gainTimer = 0;
   private standings: HTMLElement; private posEl: HTMLElement; private lapOf: HTMLElement; private rows: HTMLElement;
+  private test: HTMLElement; private testName: HTMLElement; private testTime: HTMLElement; private testBar: HTMLElement; private testMedals: HTMLElement[] = [];
   readonly results: HTMLElement;
+  private wheel: HTMLElement; private wheelGear: HTMLElement; private wheelRpm: HTMLElement; private wheelKmh: HTMLElement;
+  private tyres: HTMLElement[] = [];
 
   constructor(private track: Track) {
     document.body.appendChild(this.root);
@@ -67,6 +72,25 @@ export class Hud {
     this.hopDot = el('div', 'hop ready', this.air);
     this.airGain = el('div', 'gain', this.air);
 
+    // the steering wheel (a yoke) with its screen: gear, RPM and speed; turns with the steering
+    const wheelWrap = el('div', 'wheelwrap', this.root);
+    this.wheel = el('div', 'wheel', wheelWrap);
+    this.wheel.innerHTML = `<svg viewBox="0 0 200 130"><path class="yoke" d="M 34 16 C 8 18 8 104 46 114 L 154 114 C 192 104 192 18 166 16"/>
+      <path class="yoke-edge" d="M 34 16 C 8 18 8 104 46 114 L 154 114 C 192 104 192 18 166 16"/>
+      <path class="yoke-spoke" d="M 64 100 L 82 82 M 136 100 L 118 82"/></svg>`;
+    // the screen stays upright so it can be read mid-corner
+    const screen = el('div', 'wheel-screen', wheelWrap);
+    this.wheelGear = el('div', 'w-gear', screen, 'D');
+    const nums = el('div', 'w-nums', screen);
+    this.wheelKmh = el('span', 'w-kmh', nums, '0');
+    this.wheelRpm = el('span', 'w-rpm', nums, '0');
+
+    // tyre temperatures, above the dash: front left, front right, rear left, rear right
+    const tyres = el('div', 'panel tyrepanel', this.root);
+    el('div', 'label', tyres, 'TYRES');
+    const grid = el('div', 'tyregrid', tyres);
+    for (let k = 0; k < 4; k++) this.tyres.push(el('div', 'tyre cold', grid));
+
     // minimap, bottom left
     const mapWrap = el('div', 'panel mapwrap', this.root);
     this.mapBg = el('canvas', 'map', mapWrap);
@@ -80,20 +104,27 @@ export class Hud {
     this.lapOf = el('div', 'lapof', head);
     this.rows = el('div', 'list', this.standings);
 
+    this.test = el('div', 'panel testpanel hidden', this.root);
+    this.testName = el('div', 'test-name', this.test);
+    this.testTime = el('div', 'time big', this.test, formatTime(null));
+    const medals = el('div', 'test-medals', this.test);
+    for (const m of ['gold', 'silver', 'bronze']) {
+      const r = el('div', `medal-row ${m}`, medals);
+      el('i', 'medal-dot', r); el('span', 'label', r, m.toUpperCase());
+      this.testMedals.push(el('span', 'value', r));
+    }
+    this.testBar = el('div', 'fill', el('div', 'test-bar', this.test));
+
     this.toast = el('div', 'toast', this.root);
     this.lights = el('div', 'startlights', this.root);
     for (let k = 0; k < 5; k++) this.lightDots.push(el('div', 'light', this.lights));
+    this.countdown = el('div', 'countdown', this.root);
     this.info = el('div', 'info', this.root);
 
     this.title = el('div', 'overlay title', document.body);
     this.title.innerHTML = `
       <div class="brand">ROADSTER</div>
       <div class="tag">Electric. Instant. Yours to drive.</div>
-      <div class="prompt">Press any key or click to race · F for free practice</div>
-      <div class="keys">
-        <span><b>W A S D</b> / arrows drive</span><span><b>Shift</b> boost</span><span><b>E</b> hop</span><span><b>Space</b> handbrake</span><span><b>C</b> camera</span>
-        <span><b>R</b> reset</span><span><b>P</b> paint</span><span><b>T</b> time of day</span><span><b>H</b> help</span>
-      </div>
       <a class="showroom-link" href="#showroom">See the car in the showroom ›</a>
       <div class="loading">Loading…</div>`;
     this.help = el('div', 'overlay help hidden', document.body);
@@ -121,7 +152,6 @@ export class Hud {
       <p>Press H to close</p>`;
     this.results = el('div', 'overlay results hidden', document.body);
     this.paused = el('div', 'overlay paused hidden', document.body);
-    this.paused.innerHTML = '<h2><span class="solo-only">Paused</span><span class="party-only">Menu</span></h2><p>Press Esc to continue</p>';
   }
 
   private arcPath(from: number, to: number) {
@@ -167,8 +197,17 @@ export class Hud {
   }
 
   update(dt: number, o: { speed: number; powerKw: number; lap: number; current: number | null; last: number | null; best: number | null; x: number; z: number; heading: number; help: string; paint: string;
-    others?: { x: number; z: number; color: string }[] }) {
+    others?: { x: number; z: number; color: string }[]; steer: number; gear: string; rpm: number; tyres: number[] }) {
     const kmh = Math.abs(o.speed) * 3.6;
+    this.wheel.style.transform = `rotate(${(o.steer * 60).toFixed(1)}deg)`;
+    if (this.wheelGear.textContent !== o.gear) this.wheelGear.textContent = o.gear;
+    this.wheelKmh.textContent = `${kmh.toFixed(0)} km/h`;
+    this.wheelRpm.textContent = `${(Math.round(o.rpm / 10) * 10).toLocaleString('en-US')} rpm`;
+    o.tyres.forEach((t, k) => {
+      const c = `tyre ${tyreClass(t)}`;
+      if (this.tyres[k].className !== c) this.tyres[k].className = c;
+      this.tyres[k].textContent = String(Math.round(t));
+    });
     this.speed.textContent = kmh.toFixed(0);
     this.unit.textContent = o.speed < -0.5 ? 'KM/H · R' : 'KM/H';
     const p = Math.max(-1, Math.min(1, o.powerKw / 560));
@@ -209,12 +248,35 @@ export class Hud {
     if (this.rows.innerHTML !== html) this.rows.innerHTML = html;
   }
 
-  /** the results table after the player crosses the line */
-  showResults(title: string, rows: { pos: number; name: string; time: string; best: string; you: boolean }[]) {
-    this.results.innerHTML = `<h2>${title}</h2><div class="sub">RESULTS</div><table>${rows.map(r =>
-      `<tr class="${r.you ? 'you' : ''}"><td>${r.pos}</td><td>${r.name}</td><td></td><td>${r.time}</td><td>best ${r.best}</td></tr>`).join('')}</table>
-      <p>Enter to race again · F for free practice</p>`;
+  /** a license test: its name, the clock, the medal times (each greys out once it's gone) and
+   *  how far along from A to B; null hides the panel */
+  setTest(t: { name: string; time: number | null; medals: number[]; done: number } | null) {
+    this.test.classList.toggle('hidden', !t);
+    if (!t) return;
+    if (this.testName.textContent !== t.name) this.testName.textContent = t.name;
+    this.testTime.textContent = formatTime(t.time ?? 0);
+    t.medals.forEach((m, k) => {
+      const txt = m.toFixed(1);
+      if (this.testMedals[k].textContent !== txt) this.testMedals[k].textContent = txt;
+      this.testMedals[k].parentElement!.classList.toggle('gone', t.time !== null && t.time > m);
+    });
+    this.testBar.style.width = `${(Math.max(0, Math.min(1, t.done)) * 100).toFixed(1)}%`;
+  }
+
+  /** the results table after the player crosses the line (or the session is finished early) */
+  showResults(title: string, sub: string, rows: { pos: number | string; name: string; time: string; best: string; you: boolean }[],
+    actions: { label: string; primary?: boolean; run: () => void }[], note = '') {
+    this.results.innerHTML = `<h2>${title}</h2><div class="sub">${sub}</div><table>${rows.map(r =>
+      `<tr class="${r.you ? 'you' : ''}"><td>${r.pos}</td><td>${r.name}</td><td></td><td>${r.time}</td><td>${r.best}</td></tr>`).join('')}</table>
+      ${note ? `<p>${note}</p>` : ''}<div class="row"></div>`;
+    const row = this.results.querySelector('.row')!;
+    for (const a of actions) {
+      const b = el('button', `btn big${a.primary ? ' primary' : ''}`, row as HTMLElement, a.label);
+      b.onclick = a.run;
+    }
+    this.results.setAttribute('data-ui', '');
     this.results.classList.remove('hidden');
+    (row.firstElementChild as HTMLElement | null)?.focus({ preventScroll: true });
   }
 
   /** air tank 0..1, whether the rear jets are firing and whether a hop is ready */
@@ -246,10 +308,16 @@ export class Hud {
     this.toastTimer = seconds;
   }
 
-  /** start lights: n red lit (1..5), 0 = off, -1 = hide */
+  /** start lights: n red lit (1..5) with the countdown under them (5 down to 1), 0 = off, -1 = hide */
   setLights(n: number) {
     this.lights.classList.toggle('show', n >= 0);
     this.lightDots.forEach((d, k) => d.classList.toggle('on', k < n));
+    const text = n >= 1 && n <= 5 ? String(6 - n) : '';
+    if (this.countdown.textContent !== text) {
+      this.countdown.textContent = text;
+      // restart the pop-in animation for each new number
+      this.countdown.classList.remove('tick'); void this.countdown.offsetWidth; if (text) this.countdown.classList.add('tick');
+    }
   }
 
   ready() { this.title.querySelector('.loading')?.remove(); this.title.classList.add('ready'); }

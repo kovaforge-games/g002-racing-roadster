@@ -31,10 +31,10 @@ const players = page => page.$$eval('.players li .pname', els => els.map(e => e.
 
 try {
   const host = await open('Ana', url);
-  await page_click(host, 'Create party');
+  await page_click(host, 'Make party');
   await host.waitForSelector('.code-big', { timeout: 90000 });
   const code = (await host.textContent('.code-big')).replace(/\D/g, '');
-  check(/^[1-9]\d{5}$/.test(code), `Create party shows a 6-digit code (${code})`);
+  check(/^[1-9]\d{5}$/.test(code), `Make party shows a 6-digit code (${code})`);
   const qr = await host.$eval('canvas.qr', c => { const x = c.getContext('2d').getImageData(0, 0, c.width, c.height); return { w: c.width, h: c.height, d: Array.from(x.data) }; });
   const decoded = jsQR(Uint8ClampedArray.from(qr.d), qr.w, qr.h);
   check(!!decoded && decoded.data.endsWith(`?code=${code}`), `the QR code holds the join link (${decoded?.data})`);

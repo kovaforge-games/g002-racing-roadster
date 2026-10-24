@@ -1,8 +1,9 @@
 // Unified input, ported from g001: keyboard keys are ramped into smooth analogue values, and a
 // gamepad (left stick, triggers) takes over whenever it asks for more.
 import type { CarInputs } from '../sim/car';
+import type { TouchDrive } from '../ui/touch';
 
-export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop' | 'practice';
+export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop';
 
 const KEYS = {
   left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'],
@@ -11,7 +12,7 @@ const KEYS = {
 };
 const PRESS: Record<string, Action> = {
   KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'paint', KeyH: 'help', KeyT: 'time', KeyM: 'mute',
-  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', KeyE: 'hop', Enter: 'hop', KeyF: 'practice',
+  Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', KeyE: 'hop', Enter: 'hop',
 };
 /** standard-mapping gamepad buttons: A hops, B boosts (held, read in poll) */
 const PAD_PRESS: Record<number, Action> = { 0: 'hop', 3: 'camera', 8: 'reset', 9: 'pause', 2: 'paint' };
@@ -33,7 +34,9 @@ class InputManager {
   private steer = 0; private throttle = 0; private brake = 0;
   /** any key, click, tap or pad button (used to start and to unlock audio); gets the key code */
   onAny: ((code?: string) => void) | null = null;
-  lastDevice: 'keyboard' | 'gamepad' = 'keyboard';
+  lastDevice: 'keyboard' | 'gamepad' | 'touch' = 'keyboard';
+  /** the on-screen touch controls, when they are showing */
+  touch: { poll(dt: number): TouchDrive } | null = null;
 
   init() {
     // typing a name or a party code is not driving
@@ -99,7 +102,17 @@ class InputManager {
       handbrake ||= !!gp.buttons[5]?.pressed;
       lookBack ||= !!gp.buttons[4]?.pressed;
     }
-    return { steer: Math.max(-1, Math.min(1, steer)), throttle, brake, handbrake, lookBack, boost, hop: this.consume('hop'), pitch };
+    let hop = this.consume('hop');
+    if (this.touch) {
+      const t = this.touch.poll(dt);
+      if (Math.abs(t.steer) > Math.abs(steer)) steer = t.steer;
+      throttle = Math.max(throttle, t.throttle);
+      brake = Math.max(brake, t.brake);
+      boost ||= t.boost;
+      hop ||= t.hop;
+      if (t.throttle || t.brake || t.steer) this.lastDevice = 'touch';
+    }
+    return { steer: Math.max(-1, Math.min(1, steer)), throttle, brake, handbrake, lookBack, boost, hop, pitch };
   }
 }
 

@@ -3,7 +3,7 @@
 // sector, occasional mistakes and recovery. On top of that they use the thrusters: boost on the
 // straights, a hop over a slow car in their lane, and a detour through the air canisters when
 // their tank runs low.
-import { CAR, steerLockAt, type Car, type CarInputs } from './car';
+import { steerLockAt, type Car, type CarInputs } from './car';
 import type { JetInputs, Jets } from './jets';
 import type { Track } from './track';
 import type { Canisters } from './canisters';
@@ -18,14 +18,41 @@ export interface RivalDef {
   consistency: number;
 }
 
-/** fictional drivers, one per paint colour after the player's */
+/** the bots, in order: Bot 1 is the quickest. A race with fewer opponents takes the first ones */
 export const RIVALS: RivalDef[] = [
-  { name: 'Nova Reyes', pace: 1.02, aggression: 0.75, consistency: 0.92 },
-  { name: 'Kai Lindqvist', pace: 1.0, aggression: 0.55, consistency: 0.95 },
-  { name: 'Mara Okafor', pace: 0.99, aggression: 0.9, consistency: 0.8 },
-  { name: 'Theo Brandt', pace: 0.97, aggression: 0.45, consistency: 0.9 },
-  { name: 'Suki Tanaka', pace: 0.955, aggression: 0.7, consistency: 0.75 },
+  { name: 'Lionelinni Bannanini', pace: 1.02, aggression: 0.75, consistency: 0.93 },
+  { name: 'Gunvini Uvinini', pace: 1.012, aggression: 0.6, consistency: 0.95 },
+  { name: 'Ramanini Banannini', pace: 1.005, aggression: 0.85, consistency: 0.85 },
+  { name: 'Arvinini Chegenini', pace: 0.998, aggression: 0.5, consistency: 0.92 },
+  { name: 'Jakobini Chananini', pace: 0.99, aggression: 0.7, consistency: 0.88 },
+  { name: 'Joaquinini Borquezini', pace: 0.983, aggression: 0.8, consistency: 0.8 },
+  { name: 'Orionini Siuinini', pace: 0.976, aggression: 0.55, consistency: 0.9 },
+  { name: 'Jakeinnini Bananinni', pace: 0.97, aggression: 0.65, consistency: 0.84 },
+  { name: 'Asherinini Basketballini', pace: 0.963, aggression: 0.9, consistency: 0.78 },
+  { name: 'Danielini Caperrinini', pace: 0.956, aggression: 0.45, consistency: 0.9 },
+  // the wildcard: not the quickest, but the first to boost and hop
+  { name: 'Nico the Bird', pace: 0.95, aggression: 1, consistency: 0.72 },
 ];
+
+export type Difficulty = 'newbie' | 'beginner' | 'club' | 'expert' | 'pro';
+export const DIFFICULTY_ORDER: Difficulty[] = ['newbie', 'beginner', 'club', 'expert', 'pro'];
+
+/** how the bots drive at each difficulty: pace multiplies their own, consistency and aggression
+ *  shift theirs, `ease` is how much they slow down when well ahead of the player and `push` how
+ *  much harder they try when well behind */
+export const DIFFICULTIES: Record<Difficulty, { label: string; about: string; pace: number; consistency: number; aggression: number; ease: number; push: number }> = {
+  newbie: { label: 'Newbie', about: 'Gentle bots that brake early and wait for you.', pace: 0.8, consistency: -0.25, aggression: -0.4, ease: 0.08, push: 0.01 },
+  beginner: { label: 'Beginner', about: 'Relaxed bots that make mistakes.', pace: 0.89, consistency: -0.15, aggression: -0.25, ease: 0.06, push: 0.025 },
+  club: { label: 'Club', about: 'A fair fight for a driver who knows the track.', pace: 0.95, consistency: -0.05, aggression: -0.1, ease: 0.04, push: 0.04 },
+  expert: { label: 'Expert', about: 'Quick, tidy bots that pass when they can.', pace: 1, consistency: 0, aggression: 0, ease: 0.03, push: 0.06 },
+  pro: { label: 'Pro', about: 'Flat out and hardly any mistakes.', pace: 1.035, consistency: 0.06, aggression: 0.1, ease: 0.01, push: 0.06 },
+};
+
+/** a bot's driving at a difficulty */
+export function rivalAt(def: RivalDef, d: Difficulty): RivalDef {
+  const k = DIFFICULTIES[d], clamp = (v: number) => Math.max(0, Math.min(1, v));
+  return { name: def.name, pace: def.pace * k.pace, aggression: clamp(def.aggression + k.aggression), consistency: clamp(def.consistency + k.consistency) };
+}
 
 /** what a driver can see of another car */
 export interface CarView { car: Car; s: number; lateral: number; speed: number }
@@ -121,11 +148,12 @@ export class RivalDriver {
     const dx = p.x - pos.x, dz = p.z - pos.z;
     const lf = dx * fwd.x + dz * fwd.z, lr = dx * right.x + dz * right.z;
     const alpha = Math.atan2(lr, Math.max(lf, 1));
-    let delta = Math.atan((2 * CAR.wheelbase * Math.sin(alpha)) / look);
-    const aMax = CAR.grip * 0.95 * (9.81 + (0.6 * CAR.liftArea * speed * speed) / CAR.mass);
-    const dMax = Math.atan((CAR.wheelbase * aMax) / Math.max(speed * speed, 1)) * 1.4;
+    const S = car.spec;
+    let delta = Math.atan((2 * S.wheelbase * Math.sin(alpha)) / look);
+    const aMax = S.grip * 0.95 * (9.81 + (0.6 * S.liftArea * speed * speed) / S.mass);
+    const dMax = Math.atan((S.wheelbase * aMax) / Math.max(speed * speed, 1)) * 1.4;
     delta = Math.max(-dMax, Math.min(dMax, delta));
-    const steer = Math.max(-1, Math.min(1, delta / (steerLockAt(speed) || 1e-3)));
+    const steer = Math.max(-1, Math.min(1, delta / (steerLockAt(speed, S.steerLock) || 1e-3)));
 
     // --- speed: profile ahead, scaled by pace and what this driver has learned per sector
     const sec = Math.floor((me.s / tr.total) * SECTORS) % SECTORS;

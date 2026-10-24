@@ -73,10 +73,10 @@ function startRace(p: Party) {
   }
   broadcast(p, { t: 'race', settings: p.settings, grid, raceId: p.raceId });
   broadcast(p, lobbyState(p));
-  // 2 s to settle on the grid, five lights 0.8 s apart, then a random hold before lights out
+  // 2 s to settle on the grid, then the 5 second countdown: a light a second, then lights out
   const base = 2000;
-  for (let n = 1; n <= 5; n++) p.timers.push(setTimeout(() => broadcast(p, { t: 'lights', n }), base + n * 800));
-  p.timers.push(setTimeout(() => { p.phase = 'racing'; broadcast(p, { t: 'go' }); }, base + 4800 + 400 + Math.random() * 800));
+  for (let n = 1; n <= 5; n++) p.timers.push(setTimeout(() => broadcast(p, { t: 'lights', n }), base + (n - 1) * 1000));
+  p.timers.push(setTimeout(() => { p.phase = 'racing'; broadcast(p, { t: 'go' }); }, base + 5000));
 }
 
 function results(p: Party) {
