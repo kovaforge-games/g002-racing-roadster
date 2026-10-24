@@ -122,15 +122,35 @@ const check = (ok: boolean, msg: string) => { console.log(`${ok ? '  ok ' : 'FAI
   console.log(`air control: ${flipped ? 'went over' : 'did not rotate'}, events ${events.join(', ') || '-'}, upright ${car.axes().up.y.toFixed(2)}`);
   check(flipped, 'holding pitch in the air rotates the car past upside down');
 
-  // throttle and steering already held at take-off don't pitch or yaw the car
-  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
-  run({ ...idle, throttle: 1 }, none, () => car.speed > 40);
-  const held = { ...idle, throttle: 1, steer: 0.5 };
-  car.step(held); jets.step(car, held, { ...none, hop: true }); world.step();
-  let minUp = 1, yaw = 0;
-  run(held, none, t => { minUp = Math.min(minUp, car.axes().up.y); if (car.airborne) yaw += Math.abs(car.yawRate) * dt; return t > 0.2 && !car.airborne || t > 3; });
-  console.log(`hop holding throttle and steering: lowest up ${minUp.toFixed(2)}, yaw in the air ${(yaw * 57.3).toFixed(0)}°`);
-  check(minUp > 0.9 && yaw < 0.3, 'inputs held through a hop keep the car level');
+  // throttle held at take-off doesn't pitch the car; steering in the air turns it and its travel
+  const heading = () => { const v = car.body.linvel(); return Math.atan2(v.x, v.z); };
+  const airSteer = (tank: number, hover = false) => {
+    car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+    run({ ...idle, throttle: 1 }, none, () => car.speed > 25);
+    const held = { ...idle, throttle: 1, steer: 0.6 };
+    car.step(held); jets.step(car, held, { ...none, hop: true, hover }); world.step();
+    jets.tank = tank;
+    let minUp = 1, h0 = NaN, h1 = 0, lead = 0;
+    run(held, { ...none, hover }, t => {
+      minUp = Math.min(minUp, car.axes().up.y);
+      if (car.airborne) {
+        if (isNaN(h0)) h0 = heading();
+        h1 = heading();
+        const f = car.axes().fwd, d = Math.atan2(f.x, f.z) - h1;
+        lead = Math.max(lead, Math.abs(Math.atan2(Math.sin(d), Math.cos(d))));
+      }
+      return t > 0.2 && !car.airborne || t > 8;
+    });
+    let turned = h1 - h0; turned = Math.abs(Math.atan2(Math.sin(turned), Math.cos(turned)));
+    return { minUp, turned, lead };
+  };
+  const full = airSteer(1), empty = airSteer(0), hov = airSteer(1, true);
+  console.log(`hop holding throttle and steering: lowest up ${full.minUp.toFixed(2)}, travel turned ${(full.turned * 57.3).toFixed(0)}° in the air (${(empty.turned * 57.3).toFixed(0)}° with an empty tank)`);
+  console.log(`hover holding steering: travel turned ${(hov.turned * 57.3).toFixed(0)}°, nose at most ${(hov.lead * 57.3).toFixed(0)}° off the travel, landed at ${(car.speed * 3.6).toFixed(0)} km/h`);
+  check(full.minUp > 0.9, 'inputs held through a hop keep the car level');
+  check(full.turned > 0.35 && full.turned < 1.6, 'steering in the air turns the car\'s travel (20° to 90° in one jump)');
+  check(empty.turned > 0.35, 'steering in the air works with an empty tank');
+  check(hov.turned > 1 && hov.lead < 0.6 && car.speed > 10, 'steering through a hover takes a corner without spinning the car round');
 
   // Road Thruster controls: holding jump hovers, side thrusters dodge on the road and flip in the air
   car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
