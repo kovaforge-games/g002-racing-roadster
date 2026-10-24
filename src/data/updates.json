@@ -1,0 +1,93 @@
+[
+  {
+    "version": "1.0",
+    "date": "2026-10-24",
+    "title": "Fun Mode and the Garage",
+    "items": [
+      "Fun Mode: red ramps with neon edges, rings of fire and item boxes.",
+      "The Garage: paint, rim colours, liveries, wings and tyres for your car.",
+      "Version numbers: the home screen shows the version you're playing, and this list shows what changed in each one."
+    ]
+  },
+  {
+    "version": "0.9",
+    "date": "2026-10-24",
+    "title": "Crashes and the tow Roadster",
+    "items": [
+      "Crash damage: hard hits dent the car.",
+      "A flying tow Roadster hooks on to a crashed car and carries it back to the track."
+    ]
+  },
+  {
+    "version": "0.8",
+    "date": "2026-10-24",
+    "title": "Smoother, sharper, faster loading",
+    "items": [
+      "Steer in the air: while you jump or hover, steering turns the car and the way it is flying, even with an empty tank.",
+      "Faster loading, with tips and this list while the game starts.",
+      "Party QR codes work again: scan one to join the party.",
+      "A sharper picture, no more freezing when the time of day changes, and the Graphics setting works."
+    ]
+  },
+  {
+    "version": "0.7",
+    "date": "2026-10-24",
+    "title": "Road Thruster controls",
+    "items": [
+      "Space jumps, hold it to hover, and Q / E fire the side thrusters."
+    ]
+  },
+  {
+    "version": "0.6",
+    "date": "2026-10-24",
+    "title": "Careers",
+    "items": [
+      "Championships, licenses and race weekends, with the 0x1.5, 0x2.5 and 0x3.5 cars to earn.",
+      "Pick your car class before a session."
+    ]
+  },
+  {
+    "version": "0.5",
+    "date": "2026-10-24",
+    "title": "Home screen and rivals",
+    "items": [
+      "A home screen with every mode, race setup, settings and a pause menu.",
+      "Eleven rivals to race, with five difficulties and any number of laps.",
+      "Tyres warm up as you drive and cool down in the air.",
+      "iPad mode: touch pedals, a steering slider and tilt steering."
+    ]
+  },
+  {
+    "version": "0.4",
+    "date": "2026-10-23",
+    "title": "Parties",
+    "items": [
+      "Parties: race your friends with a join code or a QR code."
+    ]
+  },
+  {
+    "version": "0.3",
+    "date": "2026-10-23",
+    "title": "Racing",
+    "items": [
+      "AI rivals to race, with name tags and jets you can hear.",
+      "The showroom: look around the car on a turntable."
+    ]
+  },
+  {
+    "version": "0.2",
+    "date": "2026-10-23",
+    "title": "Thrusters",
+    "items": [
+      "Rocket boost and air canisters on the track."
+    ]
+  },
+  {
+    "version": "0.1",
+    "date": "2026-10-23",
+    "title": "First drive",
+    "items": [
+      "The electric Roadster, the circuit, chase cameras and electric motor sound."
+    ]
+  }
+]

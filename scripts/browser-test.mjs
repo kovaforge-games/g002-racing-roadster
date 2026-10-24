@@ -2,7 +2,7 @@
 // the race field, the pause menu, boost, jump and hover, the iPad controls, the autopilot demo, the career modes (licenses, race weekend, a single-seater race), the Garage and Fun Mode. Saves screenshots to test-results/ and fails on page errors or if the car
 // doesn't move.   node scripts/browser-test.mjs [url]   (start `npm run dev` or `npm run preview` first)
 import { chromium } from 'playwright-core';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 const url = process.argv[2] ?? 'http://localhost:5173/';
 const exe = process.env.CHROMIUM_PATH ?? (existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined);
@@ -27,6 +27,14 @@ console.log('graphics', (await state()).quality);
 
 // home screen -> Quick Race setup -> Start: the 5 second countdown, then lights out
 check(await page.locator('.tile').count() === 10, 'home screen: ten tiles (the modes, Fun Mode and the Garage)');
+// the version banner pulses as NEW UPDATE until the changelog is opened, which lists every version
+const updates = JSON.parse(readFileSync(new URL('../src/data/updates.json', import.meta.url), 'utf8'));
+check(await page.locator('.update-banner.fresh').textContent().then(t => t.includes(`v${updates[0].version}`)), `home screen: NEW UPDATE banner shows v${updates[0].version}`);
+await page.click('.update-banner');
+check(await page.locator('.news-card .news-day').count() === updates.length, `changelog lists all ${updates.length} versions`);
+await page.screenshot({ path: 'test-results/1a-changelog.png' });
+await page.click('.news-card button');
+check(await page.locator('.update-banner').count() === 1 && await page.locator('.update-banner.fresh').count() === 0, 'banner stops pulsing once the changelog has been opened');
 await page.click('.tile-quick');
 await page.screenshot({ path: 'test-results/1b-setup.png' });
 await page.click('button.start');

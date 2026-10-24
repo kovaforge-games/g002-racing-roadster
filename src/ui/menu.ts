@@ -11,7 +11,7 @@ import { TouchControls } from './touch';
 import { CLASSES, CLASS_ORDER, type ClassId } from '../sim/classes';
 import { ownsCar, progress, hasLicense } from '../core/progress';
 import { LICENSES, MEDALS, medalTime, passes } from '../sim/licenses';
-import { newsList } from './news';
+import { markUpdateSeen, newsList, UPDATES, updateIsNew, VERSION } from './news';
 import { CHAMPIONSHIPS, CHAMP_OPPONENTS as CHAMP_FIELD, REWARD_PLACE, newRun, standings, type ChampRun } from '../sim/championship';
 
 /** what the menus need from the game */
@@ -135,12 +135,21 @@ export class Menu {
   home() {
     const tiles = h('div', { class: 'tiles' }, ...MODES.map((m, k) => h('button', { class: `tile tile-${m.id}`, ...(k === 0 ? { autofocus: true } : {}), onclick: () => this.open(m.id) },
       h('span', { class: 'tile-name' }, m.name), h('span', { class: 'tile-about' }, m.about))));
-    this.screen(null, tiles, this.partyButtons, h('button', { class: 'btn news-btn', onclick: () => this.news() }, "What's new"));
+    this.screen(null, tiles, this.partyButtons, this.updateBanner());
   }
 
-  private news() {
-    this.screen(() => this.home(), h('div', { class: 'card news-card' }, h('h2', null, "What's new"), newsList(),
-      h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: () => this.home() }, 'Back'))));
+  /** the version you're playing; it pulses as NEW UPDATE until you open the changelog */
+  private updateBanner() {
+    const fresh = updateIsNew();
+    return h('button', { class: 'update-banner' + (fresh ? ' fresh' : ''), onclick: () => this.news(() => this.home()) },
+      h('b', null, fresh ? 'NEW UPDATE' : "What's new"), h('span', null, `v${VERSION} · ${UPDATES[0].title}`));
+  }
+
+  /** the changelog: every version, newest first */
+  private news(back: () => void) {
+    markUpdateSeen();
+    this.screen(back, h('div', { class: 'card news-card' }, h('h2', null, "What's new"), h('p', { class: 'news-current' }, `You're playing version ${VERSION}`), newsList(),
+      h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: back }, 'Back'))));
   }
 
   private open(id: string) {
@@ -310,6 +319,7 @@ export class Menu {
       }), steerAbout),
       field('Graphics', segmented(QUALITY, settings.quality, v => { settings.quality = v; reload.classList.toggle('hidden', v === startQuality); change(); }), reload),
       field('Sound', segmented([['on', 'On'], ['off', 'Off']], settings.sound ? 'on' : 'off', v => { settings.sound = v === 'on'; change(); })),
+      h('div', { class: 'settings-version' }, `Roadster version ${VERSION}`),
       h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: back }, 'Back')));
   }
 
