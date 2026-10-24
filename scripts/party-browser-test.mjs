@@ -23,7 +23,9 @@ async function open(name, address, viewport = { width: 960, height: 540 }) {
   page.on('console', m => { if (m.type() === 'error') errors.push(`${name}: ${m.text()}`); });
   if (process.env.DEBUG) page.on('websocket', w => { console.log(name, 'ws', w.url()); w.on('framesent', f => console.log(name, '>', f.payload)); w.on('framereceived', f => console.log(name, '<', String(f.payload).slice(0, 120))); w.on('close', () => console.log(name, 'ws closed')); w.on('socketerror', e => console.log(name, 'ws error', e)); });
   const sep = address.includes('?') ? '&' : '?';
-  await page.goto(`${address}${sep}quality=low`, { waitUntil: 'load' });
+  // safe mode (no MSAA): software rendering in CI does antialiasing on the CPU, and three game
+  // pages at once would starve the last one
+  await page.goto(`${address}${sep}quality=low&safe`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__game, null, { timeout: 90000 });
   return page;
 }
