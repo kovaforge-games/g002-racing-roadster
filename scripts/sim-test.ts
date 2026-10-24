@@ -131,6 +131,33 @@ const check = (ok: boolean, msg: string) => { console.log(`${ok ? '  ok ' : 'FAI
   run(held, none, t => { minUp = Math.min(minUp, car.axes().up.y); if (car.airborne) yaw += Math.abs(car.yawRate) * dt; return t > 0.2 && !car.airborne || t > 3; });
   console.log(`hop holding throttle and steering: lowest up ${minUp.toFixed(2)}, yaw in the air ${(yaw * 57.3).toFixed(0)}°`);
   check(minUp > 0.9 && yaw < 0.3, 'inputs held through a hop keep the car level');
+
+  // Road Thruster controls: holding jump hovers, side thrusters dodge on the road and flip in the air
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run(idle, none, t => t > 1);
+  car.step(idle); jets.step(car, idle, { ...none, hop: true, hover: true }); world.step();
+  let hoverAir = 0, hoverTime = 0;
+  run(idle, { ...none, hover: true }, t => { if (car.airborne) hoverAir += dt; if (jets.hovering) hoverTime += dt; return t > 0.3 && !car.airborne || t > 8; });
+  console.log(`jump held: ${hoverAir.toFixed(2)} s in the air (${hoverTime.toFixed(2)} s hovering), tank ${(jets.tank * 100).toFixed(0)}%`);
+  check(hoverAir > air + 1, 'holding jump hovers: at least a second longer in the air than a plain jump');
+
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run({ ...idle, throttle: 1 }, none, t => t > 0.5 && car.speed > 20);
+  car.step(idle); jets.step(car, idle, { ...none, sidePress: 1 }); world.step();
+  const { right } = car.axes(), lv = car.body.linvel();
+  const sideways = lv.x * right.x + lv.z * right.z;
+  console.log(`side thruster on the road: ${sideways.toFixed(1)} m/s sideways`);
+  check(jets.events.includes('dodge') && sideways > 3, 'a side thruster dodges sideways on the road');
+
+  // (car.speed only updates on a step, so drive a moment before reading it after place())
+  car.place(0, 0, 0, 0); jets.tank = 1; jets.reset();
+  run({ ...idle, throttle: 1 }, none, t => t > 0.5 && car.speed > 20);
+  car.step(idle); jets.step(car, idle, { ...none, hop: true }); world.step();
+  let rolled = false; const rollEvents: string[] = [];
+  run(idle, { ...none, side: -1 }, t => { if (car.axes().up.y < -0.3) rolled = true; rollEvents.push(...jets.events); return t > 0.3 && !car.airborne || t > 4; });
+  run(idle, none, t => t > 2);
+  console.log(`side thruster in the air: ${rolled ? 'rolled over' : 'did not roll'}, events ${rollEvents.join(', ') || '-'}, upright ${car.axes().up.y.toFixed(2)}`);
+  check(rolled, 'a side thruster held in the air flips the car');
 }
 
 // ---- laps of the circuit

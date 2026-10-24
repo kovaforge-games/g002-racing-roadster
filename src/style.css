@@ -257,7 +257,9 @@ body:not(.touch-mode) .touch, body:not(.in-session) .touch, .touch.hidden { disp
 .tilt-dot { position: absolute; left: 50%; top: 3px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: var(--accent); }
 .tilt-hint { position: absolute; bottom: 34px; left: 0; font-size: 12px; color: var(--dim); }
 .touch[data-steering="tilt"] .steer-area { flex-direction: column; align-items: stretch; }
-.jets { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(max(16px, env(safe-area-inset-bottom)) + 262px); display: flex; gap: 12px; }
+.jets { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(max(16px, env(safe-area-inset-bottom)) + 262px); display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.jet-row { display: flex; gap: 12px; }
+.jet-btn.side { width: 60px; height: 60px; font-size: 15px; letter-spacing: -2px; }
 .jet-btn { width: 70px; height: 70px; border-radius: 50%; border: 1px solid rgba(56, 232, 255, 0.5); background: rgba(8, 12, 18, 0.6); color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 1px;
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .pedal-side { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
@@ -287,6 +289,7 @@ body.touch-mode .air { left: 16px; right: auto; bottom: 140px; transform: scale(
 @media (max-height: 500px) {
   .readout-touch b { font-size: 17px; } .readout-touch div { min-width: 48px; }
   .pedal-row .tyres .tyre { height: 30px; } .slider { height: 76px; } .slider-thumb { width: 62px; height: 62px; }
+  .jets { flex-direction: row; align-items: center; } .jet-btn { width: 58px; height: 58px; } .jet-btn.side { width: 50px; height: 50px; }
   body.touch-mode .mapwrap { display: none; }
 }
 .overlay.paused { overflow-y: auto; padding: 16px; justify-content: safe center; }

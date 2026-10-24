@@ -106,6 +106,8 @@ export class Game implements PartyGame, MenuGame {
   private jetFx!: JetFx;
   /** a hop was pressed this frame and not yet given to the physics */
   private hopQueued = false;
+  /** a side thruster was pressed this frame and not yet given to the physics (-1 or 1) */
+  private sideQueued = 0;
   /** jet events and pickups since the last frame */
   private frameEvents: JetEvent[] = [];
   private frameHop = false;
@@ -151,7 +153,7 @@ export class Game implements PartyGame, MenuGame {
   private lightsT = 0;
   private flipT = 0;
   private kerb = 0;
-  private inp: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, lookBack: false, boost: false, hop: false, pitch: 0 };
+  private inp: DriveInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, lookBack: false, boost: false, hop: false, hover: false, side: 0, sidePress: 0, pitch: 0 };
   private prev = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private curr = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private titleAngle = 0;
@@ -790,17 +792,18 @@ export class Game implements PartyGame, MenuGame {
     const near = this.track.nearest(pos.x, pos.z, this.hint, 20);
     this.hint = near.i;
     this.kerb = updateSurface(this.car, this.track, this.hint);
-    let inp: DriveInput = { ...this.inp, hop: this.hopQueued };
-    this.hopQueued = false;
+    let inp: DriveInput = { ...this.inp, hop: this.hopQueued, sidePress: this.sideQueued };
+    this.hopQueued = false; this.sideQueued = 0;
     const moving = this.phase === 'driving' || this.phase === 'finished';
-    if (this.pilot && moving) inp = { ...this.pilot.drive(this.car, near.i, near.s, dt), lookBack: false, boost: false, hop: false, pitch: 0 };
-    if (!moving) inp = { steer: 0, throttle: 0, brake: 0, handbrake: true, lookBack: false, boost: false, hop: false, pitch: 0 };
+    if (this.pilot && moving) inp = { ...this.pilot.drive(this.car, near.i, near.s, dt), lookBack: false, boost: false, hop: false, hover: false, side: 0, sidePress: 0, pitch: 0 };
+    if (!moving) inp = { steer: 0, throttle: 0, brake: 0, handbrake: true, lookBack: false, boost: false, hop: false, hover: false, side: 0, sidePress: 0, pitch: 0 };
     const assisted = applyDrivingHelp(this.help, inp, this.car);
     this.car.step(assisted);
     // in the air the raw sticks drive the attitude jets (the driving help only shapes steering)
     // no thrusters in a license test: it's about the driving
     const jetsOn = !this.test;
-    this.jets.step(this.car, inp, { boost: jetsOn && inp.boost, hop: jetsOn && inp.hop, airRoll: jetsOn && inp.handbrake, pitch: inp.pitch }, dt, this.help !== 'off');
+    this.jets.step(this.car, inp, { boost: jetsOn && inp.boost, hop: jetsOn && inp.hop, airRoll: jetsOn && inp.handbrake, pitch: inp.pitch,
+      hover: jetsOn && inp.hover, side: jetsOn ? inp.side : 0, sidePress: jetsOn ? inp.sidePress : 0 }, dt, this.help !== 'off');
     this.frameEvents.push(...this.jets.events);
     if (this.jets.hopped) this.frameHop = true;
     this.race?.stepRivals(dt);
@@ -868,6 +871,7 @@ export class Game implements PartyGame, MenuGame {
     this.handleActions();
     this.inp = input.poll(dt);
     if (this.inp.hop) this.hopQueued = true;
+    if (this.inp.sidePress) this.sideQueued = this.inp.sidePress;
 
     // the countdown: a light a second from 5 down to 1, then lights out
     if (this.phase === 'lights' && !this.paused && !this.netRace) {
@@ -909,7 +913,7 @@ export class Game implements PartyGame, MenuGame {
     this.jetFx.update(this.jets, this.frameHop, root, lv, dt);
     this.vapour.update(dt, this.rig.cam, this.renderer.gl.domElement.height);
     this.canisterScene.update(dt);
-    if (this.frameHop) audio.hop();
+    if (this.frameHop || this.frameEvents.includes('dodge')) audio.hop();
     if (this.frameAir > 0) { audio.pickup(); this.hud.airGained(this.frameAir); }
     for (const ev of this.frameEvents) { const m = JET_MESSAGES[ev]; if (m) this.hud.message(m[0], m[1]); }
     this.frameEvents.length = 0; this.frameHop = false; this.frameAir = 0;

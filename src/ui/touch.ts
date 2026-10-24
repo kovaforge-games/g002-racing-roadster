@@ -1,6 +1,7 @@
 // iPad and phone controls: steering on the left (a slider by default, or left/right buttons, or
 // tilting the device), gas and brake pedals on the right with the gear, RPM and speed above them
-// and the four tyres beside them, and buttons for the boost and hop jets.
+// and the four tyres beside them, and thruster buttons: jump (hold to hover), the two side
+// thrusters (dodge on the road, flip in the air) and boost.
 import { h } from './dom';
 import { settings } from '../core/settings';
 import { TYRE } from '../sim/car';
@@ -8,7 +9,7 @@ import { TYRE } from '../sim/car';
 export type Steering = 'slider' | 'buttons' | 'tilt';
 
 /** what the touch controls are asking for this frame */
-export interface TouchDrive { steer: number; throttle: number; brake: number; boost: boolean; hop: boolean }
+export interface TouchDrive { steer: number; throttle: number; brake: number; boost: boolean; hop: boolean; hover: boolean; side: number; sidePress: number }
 
 /** colour class for a tyre temperature */
 export const tyreClass = (t: number) => t < TYRE.cold ? 'cold' : t > TYRE.hot ? 'hot' : 'warm';
@@ -30,13 +31,16 @@ export class TouchControls {
   private gas = h('button', { class: 'pedal gas', 'aria-label': 'Gas' }, h('span', null, 'GAS'));
   private brake = h('button', { class: 'pedal brake', 'aria-label': 'Brake' }, h('span', null, 'BRAKE'));
   private boostBtn = h('button', { class: 'jet-btn boost', 'aria-label': 'Boost' }, 'BOOST');
-  private hopBtn = h('button', { class: 'jet-btn hop', 'aria-label': 'Hop' }, 'HOP');
+  private hopBtn = h('button', { class: 'jet-btn hop', 'aria-label': 'Jump, hold to hover' }, 'JUMP');
+  private sideL = h('button', { class: 'jet-btn side left', 'aria-label': 'Left side thruster' }, '◀◀');
+  private sideR = h('button', { class: 'jet-btn side right', 'aria-label': 'Right side thruster' }, '▶▶');
 
   // raw touch state
   private sliderX = 0;
   private sliderId: number | null = null;
-  private held = { left: false, right: false, gas: false, brake: false, boost: false };
+  private held = { left: false, right: false, gas: false, brake: false, boost: false, jump: false, sideL: false, sideR: false };
   private hopPressed = false;
+  private sidePressed = 0;
   private buttonSteer = 0;
   private tilt = 0;
   private tiltZero: number | null = null;
@@ -57,13 +61,15 @@ export class TouchControls {
     this.slider.append(this.thumb);
     this.root.append(
       this.steerArea,
-      h('div', { class: 'jets' }, this.hopBtn, this.boostBtn),
+      h('div', { class: 'jets' }, h('div', { class: 'jet-row' }, this.sideL, this.sideR), h('div', { class: 'jet-row' }, this.hopBtn, this.boostBtn)),
       h('div', { class: 'pedal-side' }, readout, h('div', { class: 'pedal-row' }, tyreBox, this.brake, this.gas)));
     document.body.append(this.root);
 
     this.hold(this.gas, 'gas'); this.hold(this.brake, 'brake'); this.hold(this.boostBtn, 'boost');
-    this.hopBtn.addEventListener('pointerdown', e => { e.preventDefault(); this.hopPressed = true; this.hopBtn.classList.add('down'); });
-    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) this.hopBtn.addEventListener(ev, () => this.hopBtn.classList.remove('down'));
+    // jump, side thrusters: a press fires them, holding keeps them going (hover, flip)
+    this.hold(this.hopBtn, 'jump', () => { this.hopPressed = true; });
+    this.hold(this.sideL, 'sideL', () => { this.sidePressed = -1; });
+    this.hold(this.sideR, 'sideR', () => { this.sidePressed = 1; });
 
     // the slider: put a finger anywhere on it and slide; let go and it springs back to the middle
     const fromEvent = (e: PointerEvent) => {
@@ -85,11 +91,12 @@ export class TouchControls {
     this.setSteering(settings.steering);
   }
 
-  private hold(el: HTMLElement, key: keyof TouchControls['held']) {
+  private hold(el: HTMLElement, key: keyof TouchControls['held'], onPress?: () => void) {
     el.addEventListener('pointerdown', e => {
       e.preventDefault();
       try { el.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
       this.held[key] = true; el.classList.add('down');
+      onPress?.();
     });
     const up = () => { this.held[key] = false; el.classList.remove('down'); };
     el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
@@ -152,7 +159,9 @@ export class TouchControls {
       this.tiltDot.style.left = `${50 + steer * 46}%`;
     }
     const hop = this.hopPressed; this.hopPressed = false;
-    return { steer, throttle: this.held.gas ? 1 : 0, brake: this.held.brake ? 1 : 0, boost: this.held.boost, hop };
+    const sidePress = this.sidePressed; this.sidePressed = 0;
+    return { steer, throttle: this.held.gas ? 1 : 0, brake: this.held.brake ? 1 : 0, boost: this.held.boost, hop,
+      hover: this.held.jump, side: (this.held.sideR ? 1 : 0) - (this.held.sideL ? 1 : 0), sidePress };
   }
 
   /** gear, RPM and speed above the pedals; the tyres next to them */

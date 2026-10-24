@@ -57,20 +57,23 @@ Progress (cars, medals, licenses, championships) is saved in the browser. Add `?
 
 ## Controls
 
+The thruster controls follow [Road Thruster](https://roadthruster.versezero.com/)'s "jump, hover and flip with side thrusters": Space jumps and holding it hovers, and Q and E fire the side thrusters.
+
 | Action | Keyboard | Gamepad |
 |---|---|---|
 | Accelerate / brake | W S or ↑ ↓ | RT / LT |
 | Steer | A D or ← → | Left stick |
 | Reverse | Hold brake when stopped | Hold LT when stopped |
 | Boost (rear jets) | Shift | B |
-| Hop (underbody jets) | E or Enter | A |
+| Jump (underbody jets); hold to hover | Space or Enter | A |
+| Side thrusters: dodge sideways on the road, flip in the air | Q / E | LB / RB |
 | In the air: pitch / yaw | W S / A D | Left stick |
-| In the air: roll | Hold Space + A D | Hold RB + left stick |
-| Handbrake | Space | RB |
-| Look back | B | LB |
+| In the air: roll with the steering | Hold X + A D | Hold X + left stick |
+| Handbrake | X or Ctrl | X |
+| Look back | B | Left stick click |
 | Camera (chase, far, hood, bumper) | C | Y |
 | Reset to the track | R | Back |
-| Paint colour | P | X |
+| Paint colour | P | |
 | Driving help: Easy / Medium / Off | 1 / 2 / 3 | |
 | Time of day | T | |
 | Mute | M | |
@@ -80,7 +83,7 @@ Progress (cars, medals, licenses, championships) is saved in the browser. Add `?
 
 On a touch screen the game shows touch controls by itself (Settings → Touch controls can force them on or off):
 
-- **Right side:** a tall **gas** pedal and a **brake** pedal (hold brake when stopped to reverse). Above them, the **gear, RPM and km/h**. Beside them, the **four tyres** in their places on the car, each showing its temperature: **blue** when cold, **yellow** when warm and **red** when hot. **HOP** and **BOOST** buttons sit above.
+- **Right side:** a tall **gas** pedal and a **brake** pedal (hold brake when stopped to reverse). Above them, the **gear, RPM and km/h**. Beside them, the **four tyres** in their places on the car, each showing its temperature: **blue** when cold, **yellow** when warm and **red** when hot. Above them, the thruster buttons: **◀◀ ▶▶** (side thrusters), **JUMP** (hold to hover) and **BOOST**.
 - **Left side:** steering, picked in Settings → Steering:
   - **Slider** (the default): put your thumb anywhere on the bar and slide; let go and the wheels straighten.
   - **Buttons:** hold left or right; steering ramps in like the keyboard.
@@ -114,8 +117,10 @@ A fictional electric sports coupe, inspired by modern EVs (no real brand names, 
 The car carries cold-gas thrusters fed by one compressed-air tank (the HUD's AIR gauge). Nothing burns: the jets vent white vapour.
 
 - **Boost:** rear jets add about 0.9 g of thrust (0-100 km/h drops from 2.5 s to 1.4 s) and push the car past its normal top speed, up to about 340 km/h. A full tank lasts about 4 seconds of boost. Hit boost within 0.3 s of the lights going out for a free **perfect launch**.
-- **Hop:** a burst from the underbody jets lifts the car about 2.2 m for 1.3 s of air time. It costs a fifth of the tank and has a short cooldown (the dot under the gauge).
-- **Air control:** in the air, throttle and brake (or the stick) pitch the car, steering yaws it, and holding the handbrake turns steering into roll. Inputs you were already holding at take-off are ignored until you let go, so a hop at full throttle stays level. Flips, barrel rolls and 360s get called out, and a wheels-down landing gives a small kick of speed. With driving help on, the car eases itself back to wheels-down when the sticks are centred.
+- **Jump:** a burst from the underbody jets lifts the car about 2.2 m for 1.3 s of air time. It costs a fifth of the tank and has a short cooldown (the dot under the gauge).
+- **Hover:** keep holding jump and, near the top of the jump, the underbody jets take most of the car's weight and soak up the fall, so it floats down slowly. Hovering drains the tank (a full tank lasts about 3 seconds).
+- **Side thrusters:** on the road, a quick sideways dodge (about 4.5 m/s, a small part of the tank, short cooldown). In the air, holding one rolls the car that way: a flip.
+- **Air control:** in the air, throttle and brake (or the stick) pitch the car, steering yaws it, the side thrusters roll it, and holding the handbrake turns steering into roll too. Inputs you were already holding at take-off are ignored until you let go, so a hop at full throttle stays level. Flips, barrel rolls and 360s get called out, and a wheels-down landing gives a small kick of speed. With driving help on, the car eases itself back to wheels-down when the sticks are centred.
 - **Refilling:** the tank never refills by itself. Six rows of glowing air canisters sit off the racing line around the lap (cyan dots on the map); each one adds 12% and comes back 8 seconds after it is taken.
 - The debris fence on the barriers is solid, so a hop can't clear the circuit.
 

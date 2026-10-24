@@ -1,5 +1,5 @@
 // Drives the real game in headless Chromium: home screen, race setup, countdown, keyboard driving,
-// the race field, the pause menu, boost and hop, the iPad controls, the autopilot demo, and the career modes (licenses, race weekend, a single-seater race). Saves screenshots to test-results/ and fails on page errors or if the car
+// the race field, the pause menu, boost, jump and hover, the iPad controls, the autopilot demo, and the career modes (licenses, race weekend, a single-seater race). Saves screenshots to test-results/ and fails on page errors or if the car
 // doesn't move.   node scripts/browser-test.mjs [url]   (start `npm run dev` or `npm run preview` first)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -53,21 +53,24 @@ await page.waitForFunction(v => window.__game.car.speed < v, s1.speed - 10, { ti
 await page.keyboard.up('KeyS');
 check((await state()).speed < s1.speed - 10, 'car brakes');
 
-// race and thrusters: five rivals on the grid, boost drains the tank, a hop costs air
+// race and thrusters: five rivals on the grid, boost drains the tank, a jump and a hover cost air
 check(await page.evaluate(() => window.__game.race?.entrants.length === 6 && !document.querySelector('.standings').classList.contains('hidden')), 'race: six cars and the standings panel');
 const tank0 = await page.evaluate(() => window.__game.jets.tank);
 await page.keyboard.down('KeyW'); await page.keyboard.down('ShiftLeft');
 await page.waitForTimeout(3000);
 await page.keyboard.up('ShiftLeft');
 const tank1 = await page.evaluate(() => window.__game.jets.tank);
-await page.keyboard.press('KeyE');
-await page.waitForTimeout(2500);
+// Road Thruster controls: Space jumps and holding it hovers
+await page.keyboard.down('Space');
+const hovered = await page.waitForFunction(() => window.__game.jets.hovering, null, { timeout: 30000 }).then(() => true, () => false);
 await page.screenshot({ path: 'test-results/4b-hop.png' });
+await page.keyboard.up('Space');
+check(hovered, 'holding jump hovers');
 await page.keyboard.up('KeyW');
 const tank2 = await page.evaluate(() => window.__game.jets.tank);
 console.log(`air tank: ${(tank0 * 100).toFixed(0)}% -> boost ${(tank1 * 100).toFixed(0)}% -> hop ${(tank2 * 100).toFixed(0)}%`);
 check(tank1 < tank0 - 0.02, 'boost uses air');
-check(tank2 < tank1 - 0.1, 'hop uses air');
+check(tank2 < tank1 - 0.1, 'jump and hover use air');
 
 // pause menu: Esc pauses, Resume carries on
 await page.keyboard.press('Escape');

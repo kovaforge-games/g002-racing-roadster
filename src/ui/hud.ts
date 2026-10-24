@@ -135,20 +135,20 @@ export class Hud {
         <tr><td>Steer</td><td>A D or ← → · left stick</td></tr>
         <tr><td>Reverse</td><td>hold brake when stopped</td></tr>
         <tr><td>Boost (rear jets)</td><td>Shift · B</td></tr>
-        <tr><td>Hop (underbody jets)</td><td>E or Enter · A</td></tr>
+        <tr><td>Jump (hold to hover)</td><td>Space or Enter · A</td></tr>
+        <tr><td>Side thrusters: dodge, or flip in the air</td><td>Q E · LB RB</td></tr>
         <tr><td>In the air: pitch / yaw</td><td>W S / A D · triggers, stick</td></tr>
-        <tr><td>In the air: roll</td><td>hold Space + A D · RB + stick</td></tr>
-        <tr><td>Handbrake</td><td>Space · RB</td></tr>
-        <tr><td>Look back</td><td>B · LB</td></tr>
+        <tr><td>Handbrake</td><td>X or Ctrl · X</td></tr>
+        <tr><td>Look back</td><td>B · left stick click</td></tr>
         <tr><td>Camera</td><td>C · Y</td></tr>
         <tr><td>Reset to track</td><td>R · Back</td></tr>
-        <tr><td>Paint colour</td><td>P · X</td></tr>
+        <tr><td>Paint colour</td><td>P</td></tr>
         <tr><td>Driving help</td><td>1 Easy · 2 Medium · 3 Off</td></tr>
         <tr><td>Time of day</td><td>T</td></tr>
         <tr><td>Mute</td><td>M</td></tr>
         <tr><td>Pause</td><td>Esc · Start</td></tr>
       </table>
-      <p>Boost, hops and air control all use the air tank. Drive through the glowing canisters to refill it.</p>
+      <p>Boost, jumps, hovering, the side thrusters and air control all use the air tank. Drive through the glowing canisters to refill it.</p>
       <p>Press H to close</p>`;
     this.results = el('div', 'overlay results hidden', document.body);
     this.paused = el('div', 'overlay paused hidden', document.body);
