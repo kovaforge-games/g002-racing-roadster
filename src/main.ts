@@ -7,6 +7,7 @@ import { input } from './core/input';
 import { catchErrors, safeModeRequested, startHeartbeat, showErrorBanner } from './core/health';
 import type { Quality } from './render/graphics';
 import type { TimeOfDay } from './render/environment';
+import { CLASS_ORDER, type ClassId } from './sim/classes';
 
 catchErrors();
 
@@ -31,7 +32,9 @@ async function boot() {
   // #showroom works where the query string can't be set (an embedded preview); follow hash links
   addEventListener('hashchange', () => location.reload());
   if (params.has('showroom') || location.hash === '#showroom') {
-    const room = new Showroom(document.getElementById('app')!, q && ['low', 'medium', 'high', 'ultra'].includes(q) ? q as Quality : 'ultra');
+    const car = params.get('car');
+    const room = new Showroom(document.getElementById('app')!, q && ['low', 'medium', 'high', 'ultra'].includes(q) ? q as Quality : 'ultra',
+      car && CLASS_ORDER.includes(car as ClassId) ? car as ClassId : 'rental');
     document.querySelector('.boot')?.remove();
     document.querySelector('.overlay.title')?.remove();
     (window as unknown as { __showroom: Showroom }).__showroom = room;
