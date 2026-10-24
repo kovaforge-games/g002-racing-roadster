@@ -31,6 +31,7 @@ import { audio } from './core/audio';
 import { Hud, formatTime } from './ui/hud';
 import { PartyUi, type PartyGame } from './ui/partyUi';
 import { Menu, type MenuGame } from './ui/menu';
+import { TouchControls, touchDevice } from './ui/touch';
 import { settings, setup, saveSettings, type SessionMode } from './core/settings';
 import type { PartyClient } from './net/party';
 
@@ -98,6 +99,7 @@ export class Game implements PartyGame, MenuGame {
   session: SessionMode = 'race';
   readonly trackName = TRACK_NAME;
   readonly menu: Menu;
+  readonly touch = new TouchControls();
   /** time trial: laps to drive, and each lap's time */
   private trialLaps = 3;
   private lapTimes: number[] = [];
@@ -192,8 +194,7 @@ export class Game implements PartyGame, MenuGame {
     this.hud.ready();
     this.partyUi = new PartyUi(this);
     this.menu = new Menu(this, this.hud.title, this.hud.paused, this.partyUi.buttons);
-    this.rig.mode = settings.camera;
-    if (audio.muted === settings.sound) audio.toggleMute();
+    this.applySettings();
     input.onAny = () => audio.unlock();
   }
 
@@ -252,11 +253,13 @@ export class Game implements PartyGame, MenuGame {
     } else {
       this.soloStart(GRID_S);
       this.restartCommon(false);
+      this.touch.recentre();
       this.phase = 'driving';
     }
   }
 
   private beginLights() {
+    this.touch.recentre();
     this.phase = 'lights';
     this.lightsT = 0;
     this.rig.reset();
@@ -391,6 +394,10 @@ export class Game implements PartyGame, MenuGame {
     this.setHelp(settings.help);
     this.rig.mode = settings.camera;
     if (audio.muted === settings.sound) audio.toggleMute();
+    const touch = settings.controls === 'touch' || (settings.controls === 'auto' && touchDevice());
+    document.body.classList.toggle('touch-mode', touch);
+    input.touch = touch ? this.touch : null;
+    this.touch.setSteering(settings.steering);
   }
 
   /** in a party the AI rivals step aside: the race is against the friends */
@@ -709,10 +716,14 @@ export class Game implements PartyGame, MenuGame {
     audio.update(this.car.speed, Math.max(-1, Math.min(1, this.car.powerKw / 300)), slip, this.kerb, this.paused || this.phase === 'title');
     audio.jets(Math.max(this.jets.boosting ? 1 : 0, nearBoost * 0.45), this.jets.attitude, this.jets.tank, this.paused || this.phase === 'title');
     this.hud.setAir(this.jets.tank, this.jets.boosting, this.jets.hopCooldown <= 0 && this.jets.tank >= 0.1, dt);
+    // one-speed EV: D, or R when backing up
+    const gear = this.car.speed < -0.5 ? 'R' : 'D';
+    if (input.touch) this.touch.show(gear, this.car.motorRpm, Math.abs(this.car.speed) * 3.6, this.car.tyreTemp);
     this.hud.update(dt, {
       speed: this.car.speed, powerKw: this.car.powerKw, lap: this.lap,
       current: this.lapStart !== null ? this.simTime - this.lapStart : null, last: this.lastLap, best: this.bestLap,
       x: focus.x, z: focus.z, heading: e.y, help: HELP_LABEL[this.help], paint: this.model.paintName,
+      steer: this.inp.steer, gear, rpm: this.car.motorRpm, tyres: this.car.tyreTemp,
       others: [...this.rivals.map(r => ({ x: r.model.root.position.x, z: r.model.root.position.z, color: css(PAINTS[r.e.paint].color) })), ...friends],
     });
     this.renderer.render(this.scene, this.rig.cam);

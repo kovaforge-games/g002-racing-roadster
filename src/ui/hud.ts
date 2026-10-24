@@ -1,6 +1,8 @@
 // Heads-up display: speed and motor power, the air tank, lap timing, race position and
-// standings, a minimap, messages and overlays (title, help, pause, results).
+// standings, a minimap, the steering wheel with its gear, RPM and speed screen, the tyre
+// temperatures, messages and overlays (title, help, pause, results).
 import type { Track } from '../sim/track';
+import { tyreClass } from './touch';
 
 export function formatTime(t: number | null) {
   if (t === null || !isFinite(t)) return '–:––.–––';
@@ -31,6 +33,8 @@ export class Hud {
   private gainTimer = 0;
   private standings: HTMLElement; private posEl: HTMLElement; private lapOf: HTMLElement; private rows: HTMLElement;
   readonly results: HTMLElement;
+  private wheel: HTMLElement; private wheelGear: HTMLElement; private wheelRpm: HTMLElement; private wheelKmh: HTMLElement;
+  private tyres: HTMLElement[] = [];
 
   constructor(private track: Track) {
     document.body.appendChild(this.root);
@@ -66,6 +70,25 @@ export class Hud {
     this.airPct = el('div', 'pct', this.air, '100');
     this.hopDot = el('div', 'hop ready', this.air);
     this.airGain = el('div', 'gain', this.air);
+
+    // the steering wheel (a yoke) with its screen: gear, RPM and speed; turns with the steering
+    const wheelWrap = el('div', 'wheelwrap', this.root);
+    this.wheel = el('div', 'wheel', wheelWrap);
+    this.wheel.innerHTML = `<svg viewBox="0 0 200 130"><path class="yoke" d="M 34 16 C 8 18 8 104 46 114 L 154 114 C 192 104 192 18 166 16"/>
+      <path class="yoke-edge" d="M 34 16 C 8 18 8 104 46 114 L 154 114 C 192 104 192 18 166 16"/>
+      <path class="yoke-spoke" d="M 64 100 L 82 82 M 136 100 L 118 82"/></svg>`;
+    // the screen stays upright so it can be read mid-corner
+    const screen = el('div', 'wheel-screen', wheelWrap);
+    this.wheelGear = el('div', 'w-gear', screen, 'D');
+    const nums = el('div', 'w-nums', screen);
+    this.wheelKmh = el('span', 'w-kmh', nums, '0');
+    this.wheelRpm = el('span', 'w-rpm', nums, '0');
+
+    // tyre temperatures, above the dash: front left, front right, rear left, rear right
+    const tyres = el('div', 'panel tyrepanel', this.root);
+    el('div', 'label', tyres, 'TYRES');
+    const grid = el('div', 'tyregrid', tyres);
+    for (let k = 0; k < 4; k++) this.tyres.push(el('div', 'tyre cold', grid));
 
     // minimap, bottom left
     const mapWrap = el('div', 'panel mapwrap', this.root);
@@ -162,8 +185,17 @@ export class Hud {
   }
 
   update(dt: number, o: { speed: number; powerKw: number; lap: number; current: number | null; last: number | null; best: number | null; x: number; z: number; heading: number; help: string; paint: string;
-    others?: { x: number; z: number; color: string }[] }) {
+    others?: { x: number; z: number; color: string }[]; steer: number; gear: string; rpm: number; tyres: number[] }) {
     const kmh = Math.abs(o.speed) * 3.6;
+    this.wheel.style.transform = `rotate(${(o.steer * 60).toFixed(1)}deg)`;
+    if (this.wheelGear.textContent !== o.gear) this.wheelGear.textContent = o.gear;
+    this.wheelKmh.textContent = `${kmh.toFixed(0)} km/h`;
+    this.wheelRpm.textContent = `${(Math.round(o.rpm / 10) * 10).toLocaleString('en-US')} rpm`;
+    o.tyres.forEach((t, k) => {
+      const c = `tyre ${tyreClass(t)}`;
+      if (this.tyres[k].className !== c) this.tyres[k].className = c;
+      this.tyres[k].textContent = String(Math.round(t));
+    });
     this.speed.textContent = kmh.toFixed(0);
     this.unit.textContent = o.speed < -0.5 ? 'KM/H · R' : 'KM/H';
     const p = Math.max(-1, Math.min(1, o.powerKw / 560));

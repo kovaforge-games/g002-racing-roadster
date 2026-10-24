@@ -11,6 +11,10 @@ export interface Settings {
   /** 'auto' picks a preset for the device; a change applies the next time the game loads */
   quality: 'auto' | Quality;
   sound: boolean;
+  /** on-screen touch controls: 'auto' shows them on touch devices */
+  controls: 'auto' | 'touch' | 'keyboard';
+  /** how the touch controls steer */
+  steering: 'slider' | 'buttons' | 'tilt';
 }
 
 export type SessionMode = 'race' | 'practice' | 'timetrial';
@@ -23,7 +27,7 @@ export interface RaceSetup {
   laps: number;
 }
 
-const DEFAULT_SETTINGS: Settings = { help: 'easy', camera: 'chase', quality: 'auto', sound: true };
+const DEFAULT_SETTINGS: Settings = { help: 'easy', camera: 'chase', quality: 'auto', sound: true, controls: 'auto', steering: 'slider' };
 const DEFAULT_SETUP: RaceSetup = { tod: 'noon', difficulty: 'club', opponents: 5, laps: 3 };
 
 function load<T extends object>(key: string, defaults: T): T {

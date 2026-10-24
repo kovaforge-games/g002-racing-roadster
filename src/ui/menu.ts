@@ -6,6 +6,7 @@ import { DIFFICULTIES, DIFFICULTY_ORDER } from '../sim/rival';
 import { MAX_OPPONENTS } from '../sim/race';
 import { CAMERA_ORDER } from '../render/cameras';
 import type { TimeOfDay } from '../render/environment';
+import { TouchControls } from './touch';
 
 /** what the menus need from the game */
 export interface MenuGame {
@@ -31,6 +32,12 @@ const HELP: [typeof settings.help, string, string][] = [
   ['off', 'Off', 'No help at all.'],
 ];
 const CAMERA_LABEL: Record<string, string> = { chase: 'Chase', far: 'Far chase', hood: 'Hood', bumper: 'Bumper' };
+const CONTROLS: [typeof settings.controls, string][] = [['auto', 'Auto'], ['touch', 'Touch'], ['keyboard', 'Keyboard']];
+const STEERING: [typeof settings.steering, string, string][] = [
+  ['slider', 'Slider', 'Slide your thumb left and right; let go to straighten up.'],
+  ['buttons', 'Buttons', 'Hold the left and right buttons.'],
+  ['tilt', 'Tilt', 'Tilt the iPad like a steering wheel. Hold it how you like at the start: that is straight ahead.'],
+];
 const QUALITY: [typeof settings.quality, string][] = [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']];
 
 const MODES: { id: string; name: string; about: string }[] = [
@@ -144,6 +151,7 @@ export class Menu {
   /** settings, from the home screen or the pause menu */
   private settingsCard(back: () => void) {
     const helpAbout = h('div', { class: 'field-about' }, HELP.find(x => x[0] === settings.help)![2]);
+    const steerAbout = h('div', { class: 'field-about' }, STEERING.find(x => x[0] === settings.steering)![2]);
     const startQuality = settings.quality;
     const reload = h('div', { class: 'field-about reload hidden' }, 'Graphics change when the game reloads. ',
       h('button', { class: 'btn', onclick: () => location.reload() }, 'Reload now'));
@@ -152,6 +160,14 @@ export class Menu {
       h('h2', null, 'Settings'),
       field('Driving help', segmented(HELP.map(([v, l]) => [v, l]), settings.help, v => { settings.help = v; helpAbout.textContent = HELP.find(x => x[0] === v)![2]; change(); }), helpAbout),
       field('Camera', segmented(CAMERA_ORDER.map(c => [c, CAMERA_LABEL[c]]), settings.camera, v => { settings.camera = v; change(); })),
+      field('Touch controls', segmented(CONTROLS, settings.controls, v => { settings.controls = v; change(); }),
+        h('div', { class: 'field-about' }, 'Auto shows the pedals and steering on an iPad or phone.')),
+      field('Steering', segmented(STEERING.map(([v, l]) => [v, l]), settings.steering, async v => {
+        steerAbout.textContent = STEERING.find(x => x[0] === v)![2];
+        // tilting needs permission on iPad, asked from this tap
+        if (v === 'tilt' && !(await TouchControls.askTilt())) { steerAbout.textContent = 'Tilt needs motion access: allow it when asked, or pick Slider or Buttons.'; return; }
+        settings.steering = v; change();
+      }), steerAbout),
       field('Graphics', segmented(QUALITY, settings.quality, v => { settings.quality = v; reload.classList.toggle('hidden', v === startQuality); change(); }), reload),
       field('Sound', segmented([['on', 'On'], ['off', 'Off']], settings.sound ? 'on' : 'off', v => { settings.sound = v === 'on'; change(); })),
       h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: back }, 'Back')));
