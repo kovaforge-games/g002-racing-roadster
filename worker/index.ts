@@ -1,10 +1,12 @@
 // Serves the built game from Workers static assets, and hosts each multiplayer party in its own
 // Durable Object (WebSockets at /games/g002/ws). The files live under /games/g002/ so the same
-// build works on kovaforge.org/games/g002/ and at the root of the workers.dev address.
+// build works on the games path and at the root of the workers.dev address. Everything sits
+// behind the invite gate in ./invite.
 import { DurableObject } from 'cloudflare:workers';
 import { createPartyHandler, randomCode, cleanCode, CODE_LENGTH, type Conn, type Party } from '../server/party-core';
+import { inviteGate, type InviteEnv } from './invite';
 
-interface Env { ASSETS: Fetcher; PARTY: DurableObjectNamespace<PartyRoom> }
+interface Env extends InviteEnv { ASSETS: Fetcher; PARTY: DurableObjectNamespace<PartyRoom> }
 
 const BASE = '/games/g002';
 
@@ -21,22 +23,22 @@ async function createParty(req: Request, env: Env): Promise<Response> {
   return new Response('No free party code, try again', { status: 503 });
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.pathname === BASE) return Response.redirect(`${url.origin}${BASE}/${url.search}`, 301);
-    if (!url.pathname.startsWith(`${BASE}/`)) url.pathname = BASE + url.pathname;
-    if (url.pathname === `${BASE}/ws`) {
-      if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
-      if (url.searchParams.has('create')) return createParty(request, env);
-      const code = cleanCode(url.searchParams.get('code'));
-      if (code.length !== CODE_LENGTH) return new Response('Bad party code', { status: 400 });
-      url.searchParams.set('code', code);
-      return env.PARTY.get(env.PARTY.idFromName(code)).fetch(new Request(url, request));
-    }
-    return env.ASSETS.fetch(new Request(url.toString(), request));
-  },
-};
+async function handle(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  if (url.pathname === BASE) return Response.redirect(`${url.origin}${BASE}/${url.search}`, 301);
+  if (!url.pathname.startsWith(`${BASE}/`)) url.pathname = BASE + url.pathname;
+  if (url.pathname === `${BASE}/ws`) {
+    if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
+    if (url.searchParams.has('create')) return createParty(request, env);
+    const code = cleanCode(url.searchParams.get('code'));
+    if (code.length !== CODE_LENGTH) return new Response('Bad party code', { status: 400 });
+    url.searchParams.set('code', code);
+    return env.PARTY.get(env.PARTY.idFromName(code)).fetch(new Request(url, request));
+  }
+  return env.ASSETS.fetch(new Request(url.toString(), request));
+}
+
+export default { fetch: inviteGate<Env, unknown>('g002', `${BASE}/`, handle) };
 
 /** one party (lobby + races) per Durable Object, addressed by its 6-digit code */
 export class PartyRoom extends DurableObject<Env> {

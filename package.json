@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "worker-test": "node --import tsx --import ./worker/cf-stub.mjs --test worker/invite.test.ts",
     "typecheck": "tsc --noEmit && tsc -p worker",
     "party-server": "tsx server/server.ts",
     "party-test": "tsx scripts/party-test.ts",

@@ -6,7 +6,7 @@ It builds on [g001 (Grand Prix Racer)](https://github.com/l4mb0lion/g001-racing)
 
 ## Play online
 
-Once published (see [Publishing](#publishing)): **https://kovaforge.org/games/g002/** and **https://g002-roadster.kovaforge.workers.dev/**. The game needs WebGL 2 and runs in Chrome, Edge, Firefox and Safari.
+Private, invite only. Friends get a personal invite link from Mike; without a valid invite every address returns a plain 404, and the game is never indexed (robots.txt disallows everything and every response sends `X-Robots-Tag: noindex, nofollow, noarchive`). The game needs WebGL 2 and runs in Chrome, Edge, Firefox and Safari.
 
 ## Play locally
 
@@ -121,9 +121,11 @@ npm run party-browser-test   # (with dev + party-server running) three browsers:
 
 ## Publishing
 
-The game is published the same way as g001: as its own Cloudflare Worker, `g002-roadster`, on the Delpach account. Static assets serve the game at **kovaforge.org/games/g002/** (a route that takes precedence over the `kovaforge-home` Worker for that path only) and at **g002-roadster.kovaforge.workers.dev/**. Each party runs in its own Durable Object (`PartyRoom`, SQLite-backed, which the Workers Free plan includes), reached over a WebSocket at `/games/g002/ws`; the Worker picks a random 6-digit code and tries another if that room is still in use. See `wrangler.jsonc` and `worker/index.ts`. `npx wrangler dev` runs the Worker and its Durable Objects locally (after `npm run build:kovaforge`), and `npm run party-test -- ws://localhost:8787/ws` tests it.
+The game is published the same way as g001: as its own Cloudflare Worker, `g002-roadster`, on the Delpach account. Static assets serve the game on its route (see `wrangler.jsonc`; it takes precedence over the `kovaforge-home` Worker for that path only). Each party runs in its own Durable Object (`PartyRoom`, SQLite-backed, which the Workers Free plan includes), reached over a WebSocket at `/games/g002/ws`; the Worker picks a random 6-digit code and tries another if that room is still in use. See `wrangler.jsonc` and `worker/index.ts`. `npx wrangler dev` runs the Worker and its Durable Objects locally (after `npm run build:kovaforge`), and `npm run party-test -- ws://localhost:8787/ws` tests it.
 
-**Automatic deploys on every push to `main`:** add a repository secret named `CLOUDFLARE_API_TOKEN` (GitHub → Settings → Secrets and variables → Actions). The same kind of token as g001 works: the *Edit Cloudflare Workers* template scoped to the Delpach account and the kovaforge.org zone. The workflow in `.github/workflows/deploy.yml` type-checks, runs the handling test, builds and deploys, then checks both addresses. Pull requests run the checks without deploying. To pause deploys, set the repository variable `DEPLOY_DISABLED=true`.
+**Invite gate:** `worker/invite.ts` runs before anything else on every host and path, including the party WebSocket. Opening the game with `?invite=<code>` matching the `INVITE_CODE` Worker secret sets a 30 day HttpOnly cookie (an HMAC of the code, never the code itself) and redirects to the same address without the code. Set or rotate the code with `npx wrangler secret put INVITE_CODE`; rotating it signs everyone out. With no secret set, everything is a 404. Tests: `npm run worker-test`.
+
+**Automatic deploys on every push to `main`:** add a repository secret named `CLOUDFLARE_API_TOKEN` (GitHub → Settings → Secrets and variables → Actions). The same kind of token as g001 works: the *Edit Cloudflare Workers* template scoped to the Delpach account and the kovaforge.org zone. The workflow in `.github/workflows/deploy.yml` type-checks, runs the handling test, builds and deploys. Pull requests run the checks without deploying. To pause deploys, set the repository variable `DEPLOY_DISABLED=true`.
 
 **One-off deploy from your machine:**
 
