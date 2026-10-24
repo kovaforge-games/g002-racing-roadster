@@ -12,7 +12,7 @@ import { Terrain } from '../src/sim/terrain';
 import { buildWorld, initPhysics, PHYSICS_DT } from '../src/sim/world';
 import { Jets, JETS, type JetInputs } from '../src/sim/jets';
 import { Canisters } from '../src/sim/canisters';
-import { Race, RACE_LAPS } from '../src/sim/race';
+import { Race, RACE_LAPS, MAX_OPPONENTS, type RaceOptions } from '../src/sim/race';
 
 await initPhysics();
 const dt = PHYSICS_DT;
@@ -178,12 +178,12 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
     check(r.wallHits <= 2, `${driver}/${help}: at most 2 wall hits`);
   }
 }
-// ---- a race against the AI rivals, with the line-following driver in the player's car
-{
+// ---- races against the AI rivals, with the line-following driver in the player's car
+function runRace(opts: RaceOptions) {
   const world = buildWorld(track, terrain);
   const canisters = new Canisters(track);
   const car = new Car(world, 0, 0, 0, 0), jets = new Jets();
-  const race = new Race(track, world, canisters, car, jets);
+  const race = new Race(track, world, canisters, car, jets, opts);
   const pilot = new Autopilot(track);
   pilot.keyboard = true; pilot.aggression = 1.06;
   const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
@@ -191,7 +191,7 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
   race.go();
   const boost = new Map<string, number>(), air = new Map<string, number>();
   let t = 0;
-  while (t < 300 && !race.allFinished) {
+  while (t < 150 * race.laps && !race.allFinished) {
     const p = race.player;
     updateSurface(car, track, p.hint);
     const inp = applyDrivingHelp('easy', pilot.drive(car, p.hint, p.s, dt), car);
@@ -202,10 +202,16 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
       if (e.gotAir) air.set(e.name, (air.get(e.name) ?? 0) + e.gotAir);
     }
   }
+  console.log(`${race.rivals.length} rivals, ${race.difficulty}, ${race.laps} laps:`);
   for (const e of race.standings) {
-    console.log(`P${e.pos} ${e.name.padEnd(14)} ${e.finishTime?.toFixed(1) ?? 'dnf'} s, best lap ${e.bestLap?.toFixed(1) ?? '-'} s` +
+    console.log(`  P${e.pos} ${e.name.padEnd(25)} ${e.finishTime?.toFixed(1) ?? 'dnf'} s, best lap ${e.bestLap?.toFixed(1) ?? '-'} s` +
       (e.driver ? `, boost ${(boost.get(e.name) ?? 0).toFixed(1)} s, air picked up ${((air.get(e.name) ?? 0) * 100).toFixed(0)}%, resets ${e.resets}` : ''));
   }
+  world.free();
+  return { race, boost, air };
+}
+{
+  const { race, boost, air } = runRace({ opponents: 5, laps: RACE_LAPS, difficulty: 'expert' });
   const rivals = race.rivals;
   const times = race.entrants.map(e => e.finishTime ?? Infinity);
   check(race.allFinished, `race: everyone finishes ${RACE_LAPS} laps`);
@@ -214,7 +220,16 @@ for (const [driver, help] of [['line', 'easy'], ['line', 'off'], ['keyboard', 'e
   check(rivals.every(e => e.bestLap !== null && e.bestLap > 55 && e.bestLap < 66), 'race: rival lap times between 55 and 66 s');
   check([...boost.values()].reduce((a, b) => a + b, 0) > 15, 'race: rivals use their boost');
   check([...air.values()].reduce((a, b) => a + b, 0) > 0.5, 'race: rivals pick up air canisters');
-  world.free();
+}
+// the full field of 11 bots, at the easiest and the hardest difficulty
+{
+  const avgBest = (r: Race) => r.rivals.reduce((a, e) => a + (e.bestLap ?? 99), 0) / r.rivals.length;
+  const newbie = runRace({ opponents: MAX_OPPONENTS, laps: 2, difficulty: 'newbie' }).race;
+  const pro = runRace({ opponents: MAX_OPPONENTS, laps: 2, difficulty: 'pro' }).race;
+  console.log(`average rival best lap: newbie ${avgBest(newbie).toFixed(1)} s, pro ${avgBest(pro).toFixed(1)} s`);
+  check(newbie.entrants.length === 12 && pro.allFinished && newbie.allFinished, 'full field: 12 cars, everyone finishes');
+  check(pro.rivals.reduce((a, e) => a + e.resets, 0) <= 4, 'full field: at most 4 rival resets');
+  check(avgBest(newbie) > avgBest(pro) + 8, 'newbie bots lap at least 8 s slower than pro bots');
 }
 
 process.exit(failed ? 1 : 0);
