@@ -3,7 +3,7 @@
 // sector, occasional mistakes and recovery. On top of that they use the thrusters: boost on the
 // straights, a hop over a slow car in their lane, and a detour through the air canisters when
 // their tank runs low.
-import { CAR, steerLockAt, type Car, type CarInputs } from './car';
+import { steerLockAt, type Car, type CarInputs } from './car';
 import type { JetInputs, Jets } from './jets';
 import type { Track } from './track';
 import type { Canisters } from './canisters';
@@ -148,11 +148,12 @@ export class RivalDriver {
     const dx = p.x - pos.x, dz = p.z - pos.z;
     const lf = dx * fwd.x + dz * fwd.z, lr = dx * right.x + dz * right.z;
     const alpha = Math.atan2(lr, Math.max(lf, 1));
-    let delta = Math.atan((2 * CAR.wheelbase * Math.sin(alpha)) / look);
-    const aMax = CAR.grip * 0.95 * (9.81 + (0.6 * CAR.liftArea * speed * speed) / CAR.mass);
-    const dMax = Math.atan((CAR.wheelbase * aMax) / Math.max(speed * speed, 1)) * 1.4;
+    const S = car.spec;
+    let delta = Math.atan((2 * S.wheelbase * Math.sin(alpha)) / look);
+    const aMax = S.grip * 0.95 * (9.81 + (0.6 * S.liftArea * speed * speed) / S.mass);
+    const dMax = Math.atan((S.wheelbase * aMax) / Math.max(speed * speed, 1)) * 1.4;
     delta = Math.max(-dMax, Math.min(dMax, delta));
-    const steer = Math.max(-1, Math.min(1, delta / (steerLockAt(speed) || 1e-3)));
+    const steer = Math.max(-1, Math.min(1, delta / (steerLockAt(speed, S.steerLock) || 1e-3)));
 
     // --- speed: profile ahead, scaled by pace and what this driver has learned per sector
     const sec = Math.floor((me.s / tr.total) * SECTORS) % SECTORS;

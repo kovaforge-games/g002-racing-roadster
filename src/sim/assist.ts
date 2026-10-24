@@ -5,7 +5,7 @@
 //   easy:   steering limited to what the tyres can hold + automatic counter-steer in a slide
 //   medium: automatic counter-steer in a slide
 //   off:    raw inputs (realistic)
-import { CAR, steerLockAt, type Car, type CarInputs } from './car';
+import { steerLockAt, type Car, type CarInputs } from './car';
 
 export type DrivingHelp = 'easy' | 'medium' | 'off';
 
@@ -19,12 +19,13 @@ export function applyDrivingHelp(help: DrivingHelp, inp: CarInputs, car: Car): C
   const out = { ...inp };
   const speed = car.speed;
   if (speed < 8 || inp.handbrake) return out;
-  const lock = steerLockAt(speed) || 1e-3;
+  const S = car.spec;
+  const lock = steerLockAt(speed, S.steerLock) || 1e-3;
 
   // never ask for more steering than the tyres can hold at this speed (easy only)
   if (help === 'easy') {
-    const aMax = CAR.grip * 0.92 * (G + (0.6 * CAR.liftArea * speed * speed) / CAR.mass);
-    const dMax = Math.atan((CAR.wheelbase * aMax) / Math.max(speed * speed, 1)) * 1.35;
+    const aMax = S.grip * 0.92 * (G + (0.6 * S.liftArea * speed * speed) / S.mass);
+    const dMax = Math.atan((S.wheelbase * aMax) / Math.max(speed * speed, 1)) * 1.35;
     const maxSteer = Math.min(1, dMax / lock);
     out.steer = Math.max(-maxSteer, Math.min(maxSteer, out.steer));
   }

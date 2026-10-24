@@ -3,7 +3,6 @@
 // only refills from air canisters on the track. Forces go on after Car.step() (which clears
 // them) and before world.step().
 import type { Car, CarInputs } from './car';
-import { CAR } from './car';
 import { PHYSICS_DT } from './world';
 
 export const JETS = {
@@ -95,7 +94,8 @@ export class Jets {
       const ux = up.x * 0.35, uy = 0.65 + up.y * 0.35, uz = up.z * 0.35;
       // don't stack on an upward speed the car already has
       const add = Math.max(0, dv - Math.max(0, lv.y));
-      b.applyImpulse({ x: ux * add * CAR.mass, y: uy * add * CAR.mass, z: uz * add * CAR.mass }, true);
+      const m = car.spec.mass;
+      b.applyImpulse({ x: ux * add * m, y: uy * add * m, z: uz * add * m }, true);
       this.drain(JETS.hopCost);
       this.hopCooldown = JETS.hopCooldown;
       this.hopped = true;
@@ -155,7 +155,7 @@ export class Jets {
         if (up.y > 0.9) {
           // wheels-down landing: the tyres bite and the car keeps its speed with a small kick
           const lv = b.linvel();
-          const kick = 2.2 * CAR.mass;
+          const kick = 2.2 * car.spec.mass;
           b.applyImpulse({ x: fwd.x * kick, y: 0, z: fwd.z * kick }, true);
           if (Math.hypot(lv.x, lv.z) > 8) this.events.push('clean-landing');
         } else this.events.push('landing');
