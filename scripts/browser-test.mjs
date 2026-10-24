@@ -1,5 +1,5 @@
 // Drives the real game in headless Chromium: home screen, race setup, countdown, keyboard driving,
-// the race field, the pause menu, boost, jump and hover, the iPad controls, the autopilot demo, and the career modes (licenses, race weekend, a single-seater race). Saves screenshots to test-results/ and fails on page errors or if the car
+// the race field, the pause menu, boost, jump and hover, the iPad controls, the autopilot demo, the career modes (licenses, race weekend, a single-seater race), the Garage and Fun Mode. Saves screenshots to test-results/ and fails on page errors or if the car
 // doesn't move.   node scripts/browser-test.mjs [url]   (start `npm run dev` or `npm run preview` first)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -26,7 +26,7 @@ await page.screenshot({ path: 'test-results/1-title.png' });
 console.log('graphics', (await state()).quality);
 
 // home screen -> Quick Race setup -> Start: the 5 second countdown, then lights out
-check(await page.locator('.tile').count() === 8, 'home screen: eight modes');
+check(await page.locator('.tile').count() === 10, 'home screen: ten tiles (the modes, Fun Mode and the Garage)');
 await page.click('.tile-quick');
 await page.screenshot({ path: 'test-results/1b-setup.png' });
 await page.click('button.start');
@@ -164,6 +164,36 @@ await page.close();
   check(await up.evaluate(() => window.__game.race.entrants.every(e => e.car.spec.gears === 8) && window.__game.car.gear >= 2), '0x3.5 race: every car is a 0x3.5 and the gearbox shifts');
   await up.screenshot({ path: 'test-results/10-0x3.5.png' });
   await up.close();
+}
+
+// the garage: a livery, rim colour and wing show on the car and are kept; then Fun Mode, where the
+// course is built, every car joins in and F uses an item
+{
+  const fp = await browser.newPage({ viewport: { width: 1100, height: 620 } });
+  fp.on('pageerror', e => errors.push(e.message));
+  await fp.goto(url + quality, { waitUntil: 'load' });
+  await fp.waitForFunction(() => window.__game, null, { timeout: 90000 });
+  await fp.click('.tile-garage', { timeout: 90000 });
+  const field = name => fp.locator('.garage-card .field', { has: fp.locator('.field-label', { hasText: new RegExp(`^${name}$`) }) });
+  await field('Pattern').locator('.seg-btn', { hasText: 'Flames' }).click();
+  await field('Rim colour').locator('.swatch-btn[title="Neon green"]').click();
+  await field('Rear wing').locator('.seg-btn', { hasText: 'Fixed' }).click();
+  const saved = await fp.evaluate(() => JSON.parse(localStorage.getItem('rd-garage') ?? '{}'));
+  check(saved.pattern === 'flames' && saved.rimColor === '#7dff3a' && saved.wing === 'fixed', 'garage: the choices are saved');
+  check(await fp.evaluate(() => window.__game.car.spec.liftArea > 0.9 && window.__game.model.livery?.uniforms.uLivPat.value === 4), 'garage: the wing changes the handling and the flames are on the car');
+  await fp.screenshot({ path: 'test-results/11-garage.png' });
+  await fp.click('.garage-card button:has-text("Done")');
+  await fp.click('.tile-fun');
+  await fp.click('button.start');
+  await fp.waitForFunction(() => window.__game.phase === 'driving', null, { timeout: 120000 });
+  const fun = await fp.evaluate(() => { const f = window.__game.fun; return f && { rings: f.layout.rings.length, ramps: f.layout.ramps.length, cars: f.cars.length }; });
+  check(fun && fun.rings >= 9 && fun.ramps === 3 && fun.cars === 6, 'fun mode: rings of fire, three ramps and all six cars');
+  check(await fp.evaluate(() => !document.querySelector('.funpanel').classList.contains('hidden')), 'fun mode: the item and stunt panel shows');
+  await fp.evaluate(() => { const f = window.__game.fun.player; f.item = 'turbo'; f.charges = 1; });
+  await fp.keyboard.press('KeyF');
+  check(await fp.waitForFunction(() => window.__game.fun.player.item === null, null, { timeout: 10000 }).then(() => true, () => false), 'fun mode: F uses the item');
+  await fp.screenshot({ path: 'test-results/12-fun.png' });
+  await fp.close();
 }
 
 check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);

@@ -21,6 +21,8 @@ import { LAP_REF, qualifyingOrder } from '../src/sim/weekend';
 import { Damage, DAMAGE } from '../src/sim/damage';
 import { Tow, TOW } from '../src/sim/tow';
 import * as THREE from 'three';
+import { Fun, FUN_DEFAULTS } from '../src/sim/fun';
+import { racingLine } from '../src/sim/racingLine';
 
 await initPhysics();
 // the bots roll dice (mistakes, passing, boosting): seed them so every run of this test is the same
@@ -431,6 +433,131 @@ function runRace(opts: RaceOptions) {
   check(lowest > TOW.cable, 'the tow car stays above the car it carries');
   const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(tow.carQuat);
   check(Math.abs(Math.atan2(fwd.x, fwd.z) - track.headingAt(595)) < 0.05 || Math.abs(Math.abs(Math.atan2(fwd.x, fwd.z) - track.headingAt(595)) - 2 * Math.PI) < 0.05, 'the car faces along the track when it lands');
+}
+
+// ---- Fun Mode: every ramp's jump lands on the road (the big one through its ring of fire), the
+// rings score and singe, items work, the slipstream tows, and the bots get round a fun race
+{
+  console.log('fun mode:');
+  const line = racingLine(track);
+  const RAMP_SPEED = [0.84, 0.96, 0.78];
+  for (const id of CLASS_ORDER) {
+    const spec = CLASSES[id].spec;
+    const world = buildWorld(track, terrain);
+    const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);
+    const jumps = fun.layout.ramps.map((r, k) => {
+      // straight down the middle of the ramp at its design speed, the driving help on
+      const d = (r.d0 + r.d1) / 2, v = spec.topSpeed * RAMP_SPEED[k], s0 = r.s0 - 60;
+      const p = track.pointAt(s0, d), h = track.headingAt(s0);
+      const car = new Car(world, p.x, p.y, p.z, h, spec), jets = new Jets();
+      const fc = fun.add('test', car, jets, { car, s: s0, lateral: d, speed: v }, true, false);
+      car.body.setLinvel({ x: Math.sin(h) * v, y: 0, z: Math.cos(h) * v }, true);
+      let hint = track.nearest(p.x, p.z).i, t = 0, air = 0, best = 0, land = 0, flipped = false;
+      while (t < 4) {
+        const pos = car.body.translation();
+        const near = track.nearest(pos.x, pos.z, hint); hint = near.i;
+        fc.view.s = near.s; fc.view.lateral = near.lateral;
+        const ahead = track.pointAt(near.s + 25, d), ax = car.axes();
+        const tx = ahead.x - pos.x, tz = ahead.z - pos.z;
+        const steer = Math.max(-1, Math.min(1, 2 * Math.atan2(ax.fwd.x * tz - ax.fwd.z * tx, ax.fwd.x * tx + ax.fwd.z * tz)));
+        const inp = { steer, throttle: car.speed < v ? 1 : 0.2, brake: 0, handbrake: false };
+        car.step(inp); jets.step(car, { ...inp, throttle: 0, steer: 0 }, { boost: false, hop: false, airRoll: false });
+        fun.preStep(fc); world.step(); fun.afterStep(dt, true); t += dt;
+        if (car.airborne) air += dt; else { if (air > best) { best = air; land = near.lateral; } air = 0; }
+        if (ax.up.y < 0.3) flipped = true;
+        if (best > 0.3 && t > 2.5) break;
+      }
+      const rings = fc.rings;
+      fun.clearCars(); world.removeRigidBody(car.body);
+      return { best, land, flipped, rings };
+    });
+    console.log(`  ${id.padEnd(8)} ramp jumps ${jumps.map(j => `${j.best.toFixed(2)} s`).join(', ')}, landing ${jumps.map(j => j.land.toFixed(1)).join(', ')} m across`);
+    check(jumps.every((j, k) => j.best > [1.3, 0.45, 0.45][k] && !j.flipped && Math.abs(j.land) < track.halfWidth + 1), `${id}: every ramp jump lands on the road the right way up`);
+    check(jumps[0].rings === 1, `${id}: the big jump goes through its ring of fire`);
+    world.free();
+  }
+  // rings: through a road ring scores, under a raised one singes; items
+  {
+    const spec = CLASSES['0x1.5'].spec, world = buildWorld(track, terrain);
+    const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);
+    const drive = (d: number, secs: number, fc: ReturnType<typeof fun.add>) => {
+      const car = fc.car;
+      let hint = track.nearest(car.body.translation().x, car.body.translation().z).i;
+      for (let t = 0; t < secs; t += dt) {
+        const pos = car.body.translation(), near = track.nearest(pos.x, pos.z, hint); hint = near.i;
+        fc.view.s = near.s; fc.view.lateral = near.lateral;
+        const ahead = track.pointAt(near.s + 20, d), ax = car.axes(), tx = ahead.x - pos.x, tz = ahead.z - pos.z;
+        const inp = { steer: Math.max(-1, Math.min(1, 2 * Math.atan2(ax.fwd.x * tz - ax.fwd.z * tx, ax.fwd.x * tx + ax.fwd.z * tz))), throttle: car.speed < 25 ? 1 : 0, brake: 0, handbrake: false };
+        car.step(inp); fun.preStep(fc); world.step(); fun.afterStep(dt, true);
+      }
+    };
+    const place = (s: number, d: number) => {
+      const p = track.pointAt(s, d), h = track.headingAt(s);
+      const car = new Car(world, p.x, p.y, p.z, h, spec);
+      car.body.setLinvel({ x: Math.sin(h) * 25, y: 0, z: Math.cos(h) * 25 }, true);
+      return fun.add('test', car, new Jets(), { car, s, lateral: d, speed: 25 }, true, false);
+    };
+    const road = fun.layout.rings.find(r => r.kind === 'road')!, hop = fun.layout.rings.find(r => r.kind === 'hop')!;
+    const a = place(road.s - 30, road.d);
+    drive(road.d, 2, a);
+    check(a.rings === 1 && a.stunt >= 100, 'driving through a ring of fire scores');
+    fun.clearCars(); world.removeRigidBody(a.car.body);
+    const b = place(hop.s - 30, hop.d);
+    drive(hop.d, 2, b);
+    check(b.rings === 0 && b.soot > 0, 'driving under a raised ring of fire singes the car');
+    b.item = 'turbo'; b.charges = 1;
+    const v0 = b.car.speed;
+    check(fun.useItem(b) && b.boostT > 0 && b.item === null, 'a turbo fires and is used up');
+    drive(hop.d, 1, b);
+    check(b.car.speed > v0 + 3, 'the turbo speeds the car up');
+    b.item = 'mega'; b.charges = 1;
+    fun.useItem(b);
+    check(b.car.body.linvel().y > 8, 'Mega Jump throws the car up');
+    world.free();
+  }
+  // the slipstream: right behind another car the drag drops
+  {
+    const world = buildWorld(track, terrain);
+    const car = new Car(world, 0, 0, 0, 0), jets = new Jets();
+    const race = new Race(track, world, new Canisters(track), car, jets, { opponents: 1 });
+    race.go();
+    const lead = race.rivals[0];
+    const s = 200, p = track.pointAt(s, 0), q = track.pointAt(s - 10, 0), h = track.headingAt(s);
+    lead.car.place(p.x, p.y, p.z, h); car.place(q.x, q.y, q.z, h);
+    for (const c of [lead.car, car]) c.body.setLinvel({ x: Math.sin(h) * 50, y: 0, z: Math.cos(h) * 50 }, true);
+    lead.car.speed = car.speed = 50;
+    lead.hint = track.nearest(p.x, p.z).i; race.player.hint = track.nearest(q.x, q.z).i;
+    for (let k = 0; k < 480; k++) race.afterStep();
+    check(car.draft > 0.5 && lead.car.draft === 0, `slipstream: the car behind gets a tow (draft ${car.draft.toFixed(2)})`);
+    world.free();
+  }
+  // a fun race: the bots go for rings, boxes and items and all get round
+  {
+    const spec = CLASSES['0x1.5'].spec, world = buildWorld(track, terrain);
+    const car = new Car(world, 0, -100, 0, 0, spec), jets = new Jets();
+    const race = new Race(track, world, new Canisters(track), car, jets, { opponents: 5, laps: 2, difficulty: 'pro' });
+    const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);
+    const cars = new Map(race.entrants.map(e => [e, fun.add(e.name, e.car, e.jets, e, e === race.player, !!e.driver)] as const));
+    for (const e of race.rivals) { const fc = cars.get(e)!, dr = e.driver!; dr.aim = (s, v) => fun.aim(fc, s, v, dr.def.aggression); }
+    race.onRivalStep = (e, step) => fun.preStep(cars.get(e)!, step);
+    const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
+    for (let k = 0; k < 240; k++) { car.step(hold); race.stepRivals(); world.step(); race.afterStep(); fun.afterStep(dt, false); }
+    race.go();
+    let t = 0;
+    const kinds = new Set<string>();
+    while (t < 400 && !race.rivals.every(e => e.finished)) {
+      car.step(hold); race.stepRivals(); world.step(); race.afterStep(); fun.afterStep(dt, true); t += dt;
+      for (const fc of fun.cars) { for (const ev of fc.events) kinds.add(ev.kind); fc.events.length = 0; }
+    }
+    const bots = race.rivals.map(e => cars.get(e)!);
+    const resets = race.rivals.reduce((a, e) => a + e.resets, 0);
+    console.log(`  fun race: ${race.rivals.map(e => `${e.name.split(' ')[0]} ${e.finishTime?.toFixed(0) ?? 'dnf'} s, ${cars.get(e)!.stunt} pts, ${cars.get(e)!.rings} rings`).join('; ')}; ${resets} resets; events ${[...kinds].join(' ')}`);
+    check(race.rivals.every(e => e.finished), 'fun race: every bot finishes');
+    check(resets <= 8, 'fun race: the bots need at most 8 resets between them');
+    check(bots.every(b => b.rings > 0 && b.stunt > 0), 'fun race: every bot scores stunt points and flies through rings');
+    check(['ring', 'box', 'item', 'pad', 'air'].every(k => kinds.has(k)), 'fun race: rings, boxes, items, boost pads and big air all happen');
+    world.free();
+  }
 }
 
 process.exit(failed ? 1 : 0);

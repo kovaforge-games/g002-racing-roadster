@@ -34,6 +34,9 @@ export class TouchControls {
   private hopBtn = h('button', { class: 'jet-btn hop', 'aria-label': 'Jump, hold to hover' }, 'JUMP');
   private sideL = h('button', { class: 'jet-btn side left', 'aria-label': 'Left side thruster' }, '◀◀');
   private sideR = h('button', { class: 'jet-btn side right', 'aria-label': 'Right side thruster' }, '▶▶');
+  /** Fun Mode: use the item you're holding (shows its icon) */
+  private itemBtn = h('button', { class: 'jet-btn item', 'aria-label': 'Use item' }, 'ITEM');
+  onItem: (() => void) | null = null;
 
   // raw touch state
   private sliderX = 0;
@@ -61,7 +64,7 @@ export class TouchControls {
     this.slider.append(this.thumb);
     this.root.append(
       this.steerArea,
-      h('div', { class: 'jets' }, h('div', { class: 'jet-row' }, this.sideL, this.sideR), h('div', { class: 'jet-row' }, this.hopBtn, this.boostBtn)),
+      h('div', { class: 'jets' }, h('div', { class: 'jet-row' }, this.sideL, this.sideR), h('div', { class: 'jet-row' }, this.hopBtn, this.boostBtn), h('div', { class: 'jet-row fun-only' }, this.itemBtn)),
       h('div', { class: 'pedal-side' }, readout, h('div', { class: 'pedal-row' }, tyreBox, this.brake, this.gas)));
     document.body.append(this.root);
 
@@ -70,6 +73,7 @@ export class TouchControls {
     this.hold(this.hopBtn, 'jump', () => { this.hopPressed = true; });
     this.hold(this.sideL, 'sideL', () => { this.sidePressed = -1; });
     this.hold(this.sideR, 'sideR', () => { this.sidePressed = 1; });
+    this.itemBtn.addEventListener('pointerdown', e => { e.preventDefault(); this.onItem?.(); });
 
     // the slider: put a finger anywhere on it and slide; let go and it springs back to the middle
     const fromEvent = (e: PointerEvent) => {
@@ -174,6 +178,13 @@ export class TouchControls {
       if (this.tyres[k].className !== c) this.tyres[k].className = c;
       this.tyreText[k].textContent = String(Math.round(t));
     });
+  }
+
+  /** the item button: its icon, or empty when there is nothing to use */
+  setItem(icon: string | null) {
+    const text = icon ?? 'ITEM';
+    if (this.itemBtn.textContent !== text) this.itemBtn.textContent = text;
+    this.itemBtn.classList.toggle('empty', !icon);
   }
 
   set visible(v: boolean) { this.root.classList.toggle('hidden', !v); }

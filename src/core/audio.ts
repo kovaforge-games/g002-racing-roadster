@@ -131,6 +131,37 @@ class AudioEngine {
     });
   }
 
+  /** through a ring of fire: a roaring whoosh that sweeps down */
+  whoosh() {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = this.noise;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 1.2;
+    f.frequency.setValueAtTime(5200, now); f.frequency.exponentialRampToValueAtTime(260, now + 0.9);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.75, now + 0.05); g.gain.exponentialRampToValueAtTime(0.001, now + 1);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(now, Math.random()); src.stop(now + 1.05);
+  }
+
+  /** the crackle and roar of nearby fire, 0..1 */
+  fire(level: number) {
+    const ctx = this.ctx;
+    if (!ctx || !this.rumble) return;
+    if (!this.fireVoice) {
+      const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 0.5;
+      const g = ctx.createGain(); g.gain.value = 0;
+      src.connect(f); f.connect(g); g.connect(this.master); src.start();
+      this.fireVoice = g;
+    }
+    // flickering, like a gas burner
+    const flick = 0.75 + Math.random() * 0.5;
+    this.fireVoice.gain.setTargetAtTime(Math.min(1, level) * 0.35 * flick, ctx.currentTime, 0.05);
+  }
+  private fireVoice: GainNode | null = null;
+
   /** a dull thump for wall hits, scaled by impact speed (m/s) */
   impact(strength: number) {
     const ctx = this.ctx;

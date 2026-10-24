@@ -1,7 +1,8 @@
 // The menus: the home screen with every mode, the race setup screen, settings, and the pause
 // menu. The party screens live in partyUi.ts; their buttons sit on the home screen.
 import { h } from './dom';
-import { settings, setup, saveSettings, saveSetup, type SessionMode, type RaceSetup } from '../core/settings';
+import { settings, setup, saveSettings, saveSetup, funSetup, saveFunSetup, type SessionMode, type RaceSetup } from '../core/settings';
+import { garageCard } from './garage';
 import { DIFFICULTIES, DIFFICULTY_ORDER } from '../sim/rival';
 import { MAX_OPPONENTS } from '../sim/race';
 import { CAMERA_ORDER } from '../render/cameras';
@@ -23,6 +24,12 @@ export interface MenuGame {
   startLicenseTest(id: string, k: number): void;
   /** practice, qualifying and a race with this setup */
   startWeekend(s: RaceSetup): void;
+  /** a Fun Mode race: ramps, rings of fire, boost pads and items */
+  startFunMode(s: RaceSetup, opts: { rings: boolean; ramps: boolean; items: boolean }): void;
+  /** the garage screen opened or closed */
+  garageView(on: boolean): void;
+  /** the garage changed the car */
+  applyGarage(): void;
   /** the pause menu's Finish session button (in a race weekend it moves on to the next session) */
   readonly finishLabel: string;
   resume(): void;
@@ -55,6 +62,8 @@ const QUALITY: [typeof settings.quality, string][] = [['auto', 'Auto'], ['low', 
 
 const MODES: { id: string; name: string; about: string }[] = [
   { id: 'quick', name: 'Quick Race', about: 'Jump straight into a race against the bots' },
+  { id: 'fun', name: 'Fun Mode', about: 'Ramps, rings of fire, boost pads and items' },
+  { id: 'garage', name: 'Garage', about: 'Paint, livery, number, rims and parts' },
   { id: 'weekend', name: 'Race Weekend', about: 'Practice, qualifying, then the race' },
   { id: 'championship', name: 'Championship', about: 'Win races and earn faster classes' },
   { id: 'licenses', name: 'Licenses', about: 'Drive from A to B inside the target times' },
@@ -69,7 +78,7 @@ const SOON: Record<string, string> = {
 };
 
 /** a row of choices, one of them picked */
-function segmented<T extends string>(options: [T, string][], value: T, pick: (v: T) => void) {
+export function segmented<T extends string>(options: [T, string][], value: T, pick: (v: T) => void) {
   const row = h('div', { class: 'seg', role: 'radiogroup' });
   for (const [v, label] of options) {
     const b = h('button', { class: `seg-btn${v === value ? ' on' : ''}`, role: 'radio', 'aria-checked': String(v === value), onclick: () => {
@@ -83,7 +92,7 @@ function segmented<T extends string>(options: [T, string][], value: T, pick: (v:
 }
 
 /** − n + */
-function stepper(value: number, min: number, max: number, change: (v: number) => void, label: string) {
+export function stepper(value: number, min: number, max: number, change: (v: number) => void, label: string) {
   let v = value;
   const out = h('b', { 'aria-live': 'polite' }, String(v));
   const minus = h('button', { class: 'btn step', 'aria-label': `Fewer ${label}` }, '−') as HTMLButtonElement;
@@ -97,7 +106,7 @@ function stepper(value: number, min: number, max: number, change: (v: number) =>
 const TOD_LABEL: Record<TimeOfDay, string> = Object.fromEntries(TODS) as Record<TimeOfDay, string>;
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`;
 
-const field = (label: string, ...kids: (Node | null)[]) => h('div', { class: 'field' }, h('div', { class: 'field-label' }, label), ...kids);
+export const field = (label: string, ...kids: (Node | null)[]) => h('div', { class: 'field' }, h('div', { class: 'field-label' }, label), ...kids);
 
 export class Menu {
   private view = h('div', { class: 'menu', 'data-ui': true });
@@ -136,6 +145,8 @@ export class Menu {
 
   private open(id: string) {
     if (id === 'quick') this.setupScreen('race');
+    else if (id === 'fun') this.setupScreen('fun');
+    else if (id === 'garage') this.garage();
     else if (id === 'weekend') this.setupScreen('weekend');
     else if (id === 'timetrial') this.setupScreen('timetrial');
     else if (id === 'practice') this.setupScreen('practice');
@@ -151,22 +162,32 @@ export class Menu {
   }
 
   /** before a session: time of day, and for races the difficulty, opponents and laps */
-  setupScreen(mode: SessionMode | 'weekend') {
-    const name = mode === 'race' ? 'Quick Race' : mode === 'weekend' ? 'Race Weekend' : mode === 'timetrial' ? 'Time Trial' : 'Practice';
-    const race = mode === 'race' || mode === 'weekend';
+  setupScreen(mode: SessionMode | 'weekend' | 'fun') {
+    const name = mode === 'race' ? 'Quick Race' : mode === 'weekend' ? 'Race Weekend' : mode === 'fun' ? 'Fun Mode' : mode === 'timetrial' ? 'Time Trial' : 'Practice';
+    const race = mode === 'race' || mode === 'weekend' || mode === 'fun';
+    const fun = mode === 'fun';
+    // in Fun Mode every car is available, as in g001
+    const owns = (c: ClassId) => fun || ownsCar(c);
     const about = h('div', { class: 'field-about' }, DIFFICULTIES[setup.difficulty].about);
-    if (!ownsCar(setup.cls)) setup.cls = 'rental';
-    const start = () => { saveSetup(); if (mode === 'weekend') this.game.startWeekend(setup); else this.game.startSession(mode); };
+    if (!owns(setup.cls)) setup.cls = 'rental';
+    const start = () => {
+      saveSetup();
+      if (mode === 'weekend') this.game.startWeekend(setup);
+      else if (mode === 'fun') { saveFunSetup(); this.game.startFunMode(setup, { ...funSetup }); }
+      else this.game.startSession(mode);
+    };
     const startBtn = h('button', { class: 'btn big primary start', autofocus: true, onclick: start }, mode === 'practice' ? 'Drive' : 'Start') as HTMLButtonElement;
     // the car: a locked class shows how to earn it, and can't be started
     const carAbout = h('div', { class: 'field-about class-about' });
     const showClass = (c: ClassId) => {
-      const k = CLASSES[c], owned = ownsCar(c);
+      const k = CLASSES[c], owned = owns(c);
       carAbout.replaceChildren(k.about, owned ? '' : h('b', { class: 'locked-note' }, ` Locked: ${k.unlock}`));
       startBtn.disabled = !owned;
       if (owned) setup.cls = c;
     };
-    const carField = field('Car', segmented(CLASS_ORDER.map(c => [c, `${ownsCar(c) ? '' : '🔒 '}${CLASSES[c].name}`]), setup.cls, showClass), carAbout);
+    const carField = field('Car', segmented(CLASS_ORDER.map(c => [c, `${owns(c) ? '' : '🔒 '}${CLASSES[c].name}`]), setup.cls, showClass), carAbout);
+    const onOff = (label: string, key: keyof typeof funSetup, about: string) => field(label,
+      segmented([['on', 'On'], ['off', 'Off']], funSetup[key] ? 'on' : 'off', v => { funSetup[key] = v === 'on'; }), h('div', { class: 'field-about' }, about));
     showClass(setup.cls);
     this.screen(() => this.home(), h('div', { class: 'card setup' },
       h('h2', null, name),
@@ -174,6 +195,11 @@ export class Menu {
       carField,
       field('Time of day', segmented(TODS, setup.tod, v => { setup.tod = v; })),
       mode === 'weekend' ? h('p', { class: 'dim' }, 'Free practice to learn the track, qualifying (your best lap sets your grid slot), then the race.') : null,
+      fun ? h('p', { class: 'dim' }, 'Every car is yours to try. Score stunt points for big air, flips, rings of fire and slide boosts. F (or ITEM) uses an item.') : null,
+      fun ? h('div', { class: 'field-pair fun-switches' },
+        onOff('Rings of fire', 'rings', 'Drive through them, jump the raised ones.'),
+        onOff('Ramps & pads', 'ramps', 'Red ramps, boost pads, neon borders.'),
+        onOff('Item boxes', 'items', 'Turbo, Triple Turbo, Oil Slick, Mega Jump.')) : null,
       race ? field('Difficulty', segmented(DIFFICULTY_ORDER.map(d => [d, DIFFICULTIES[d].label]), setup.difficulty, v => { setup.difficulty = v; about.textContent = DIFFICULTIES[v].about; }), about) : null,
       race ? h('div', { class: 'field-pair' },
         field('Opponents', stepper(setup.opponents, 1, MAX_OPPONENTS, v => { setup.opponents = v; }, 'opponents')),
@@ -182,6 +208,13 @@ export class Menu {
       h('div', { class: 'row' },
         h('button', { class: 'btn big', onclick: () => this.home() }, 'Back'),
         startBtn)));
+  }
+
+  /** the garage: the car turns beside the panel while you change it */
+  garage() {
+    this.game.garageView(true);
+    const back = () => { this.game.garageView(false); this.home(); };
+    this.screen(back, garageCard(() => this.game.applyGarage(), back));
   }
 
   /** the championships: each one's races, what it earns, and Start or Continue */

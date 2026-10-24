@@ -22,10 +22,11 @@ Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic gra
 
 ## Racing
 
-The home screen lists every mode: **Quick Race**, **Race Weekend**, **Championship**, **Licenses**, **Time Trial**, **Practice**, **Replays** and **Settings**, with **Make party** and **Join party** below. Replays is still being built and says what's coming. Arrow keys move between the buttons and Esc goes back.
+The home screen lists every mode: **Quick Race**, **Race Weekend**, **Fun Mode**, **Championship**, **Licenses**, **Time Trial**, **Practice**, **Garage**, **Replays** and **Settings**, with **Make party** and **Join party** below. Replays is still being built and says what's coming. Arrow keys move between the buttons and Esc goes back.
 
 - **Quick Race:** pick the car, the time of day (morning, noon, sunset or night), the difficulty (Newbie, Beginner, Club, Expert or Pro), how many opponents (1 to 11) and how many laps (1 to 10), then press Start. You start towards the back of a staggered grid (fifth of six with 5 opponents). The standings panel (top right) shows your position, the lap and the gaps, and the bots appear as coloured dots on the map. The race setup is remembered.
 - **Race Weekend:** the same setup, then free practice (drive as long as you like, then pause and pick **Go to qualifying**), qualifying (your best of 2 laps sets your grid slot against the bots' times) and the race from that grid.
+- **Fun Mode:** a race on a course full of stunts, like g001's Fun Mode. See [Fun Mode](#fun-mode).
 - **Championship** and **Licenses:** see [Classes and career](#classes-and-career).
 - **Time Trial:** alone from a standing start for the laps you pick; the results show every lap and your record for that car and number of laps.
 - **Practice:** drive alone with no countdown, as many laps as you like.
@@ -35,6 +36,34 @@ Races and time trials start with a **5 second countdown**: a red light comes on 
 **Settings** (from the home screen or the pause menu, saved in the browser): driving help, camera, graphics preset (applies on reload) and sound.
 
 The bots are Lionelinni Bannanini, Gunvini Uvinini, Ramanini Banannini, Arvinini Chegenini, Jakobini Chananini, Joaquinini Borquezini, Orionini Siuinini, Jakeinnini Bananinni, Asherinini Basketballini, Danielini Caperrinini and Nico the Bird (bots 1 to 11; a race with fewer opponents takes the first ones). Each has their own pace, aggression and consistency, and the difficulty scales all three: Newbie bots are about 15% slower than Pro bots and make far more mistakes. They are g001's bot drivers adapted for this car: they follow a racing line at a speed set by the corners ahead, pass and follow in traffic, learn where they can push harder each lap, make the odd mistake, and recover from spins. They use the thrusters too: boost on the straights, hop a slow car in their lane, and swing through the air canisters when their tank runs low. Bots well behind you push a little harder and ones far ahead ease off (more on the easier levels), so the racing stays close. Cars collide with each other, and tailgating a boosting car is a bad idea: its jet wash shoves you back. Name tags over the bots show their position, and you hear their jets when they boost close by.
+
+**Slipstream:** two car lengths or more behind another car you get a tow (up to about a quarter less drag, so you close in on the straights and the HUD says so), but its dirty air also takes some downforce away in the corners.
+
+## Fun Mode
+
+Fun Mode is a race on Roadster Circuit with stunts built in, after g001's Fun Mode. Every car is open to try, and the setup has on/off switches for the rings of fire, the ramps and pads, and the item boxes.
+
+- **Red ramps:** a full-width kicker on the main straight that throws you about 4 to 5 m up for over a second and a half, with a ring of fire hanging right at the top of the jump, and two half-width ramps on one side of the road. Each ramp's height is worked out from your class's speed, so every car lands back on the road. The deck is red with chevrons, the sides are neon pink and the lip glows cyan.
+- **Rings of fire:** six on the road to drive through, and three raised ones hanging from gantries that you jump through with the underbody jets. Through the middle scores 100 (road), 150 (raised) or 250 (the ramp ring) points, plus a quick boost; rings in a row are worth 25% more each. Brush the flames and the streak ends, the car slows and the paint is left sooty for a while. Driving under a raised ring singes the car too.
+- **Neon borders:** rainbow strips flow along both edges of the road and along the barriers all the way round.
+- **Boost pads** on the exits of the five slowest corners, on the racing line.
+- **Item boxes:** four rows of spinning rainbow boxes. Drive through one for an item, then press **F** (or **ITEM** on a touch screen, or d-pad up) to use it: **Turbo**, **Triple Turbo** (three shorter boosts), **Oil Slick** (dropped behind you; a car that hits it spins) and **Mega Jump**.
+- **Stunt points:** big air, flips, barrel rolls and 360s, and slide boosts (hold a slide for a burst of speed). The panel on the left shows your item, stunt points and rings; the results show everyone's points, and your best for each car is saved.
+
+The bots join in: they decide which rings to go for, jump the raised ones, pick up boxes and use their items where it suits them (turbos on straights, oil when someone is close behind).
+
+## Garage
+
+The **Garage** tile opens the garage with your car beside it. Every change shows on the car straight away and is saved in the browser:
+
+- **Paint:** the twelve colours or any colour you pick, and the finish: factory, gloss, metallic, matte, pearl or chrome.
+- **Livery:** solid, racing stripes, a side stripe, two-tone or hot-rod flames, with a second colour; your race number (1 to 99) in a roundel on the doors and bonnet, or no number.
+- **Rims:** aero, open spoke or painted, in any colour (black, silver, gold, white, red, neon blue, neon green, neon pink or your own).
+- **Rear wing:** active (the standard one), a fixed high wing (more downforce, more drag) or a ducktail (less drag, less grip at speed).
+- **Tyres:** road, sport (5% more grip, but they heat up faster) or drift (less rear grip, easy slides).
+- **Glass tint** and **underglow** (cyan, pink, lime, purple or orange; brightest at night).
+
+The wing and tyres change the handling. The single-seaters wear your paint, livery and rim colour but keep their own wings. The bots have liveries and parts of their own.
 
 ## Classes and career
 
@@ -73,6 +102,7 @@ The thruster controls follow [Road Thruster](https://roadthruster.versezero.com/
 | Look back | B | Left stick click |
 | Camera (chase, far, hood, bumper) | C | Y |
 | Call the tow (back to the track) | R | Back |
+| Use item (Fun Mode) | F | D-pad up |
 | Paint colour | P | |
 | Driving help: Easy / Medium / Off | 1 / 2 / 3 | |
 | Time of day | T | |
@@ -110,7 +140,7 @@ A fictional electric sports coupe, inspired by modern EVs (no real brand names, 
 - **Powertrain:** dual motor, 42/58 front/rear, 560 kW, instant torque up to the grip limit, no gears. About 2.5 s to 100 km/h and 265 km/h flat out. Lifting off the throttle regenerates gently (the power gauge turns green).
 - **Chassis:** 1,850 kg, low centre of mass, anti-roll bars, aero drag and downforce. Grass has less grip and much more drag.
 - **Driving help** (from g001, default Easy) catches slides: it limits steering to what the tyres can hold and counter-steers when the rear steps out, and the physics damps excess yaw. It never steers you towards the line or brakes for you. Easy and Medium also keep traction control and ABS on; Off is fully raw.
-- **Visuals:** a procedural body in the style of the 2026 electric roadster: a low wedge with a flat, faceted hood and V-shaped centre panel, fenders standing proud of the hood, a sharp beltline, a black lower body and a gold-tinted glass canopy. It has a light bar across the nose, hidden headlights, a full-width tail light, a carbon diffuser with suction fans, and an active rear wing. The wing lies flush on the tail until about 80 km/h, then pops up; it trims flat for low drag at very high speed and stands up as an airbrake under hard braking. Through the tinted glass you can see the cabin, with white seats, a dash and a yoke. On High and Ultra the paint and glass reflect the track and sky live. It rides on 20" front and 21" rear wheels with thin black spokes over white aero inserts, shows body roll, pitch and skid marks, and comes in twelve paint colours. No real brand names or logos.
+- **Visuals:** a procedural body in the style of the 2026 electric roadster: a low wedge with a flat, faceted hood and V-shaped centre panel, fenders standing proud of the hood, a sharp beltline, a black lower body and a gold-tinted glass canopy. It has a light bar across the nose, hidden headlights, a full-width tail light, a carbon diffuser with suction fans, and an active rear wing. The wing lies flush on the tail until about 80 km/h, then pops up; it trims flat for low drag at very high speed and stands up as an airbrake under hard braking. Through the tinted glass you can see the cabin, with white seats, a dash and a yoke. On High and Ultra the paint and glass reflect the track and sky live. It rides on 20" front and 21" rear wheels with thin black spokes over white aero inserts, shows body roll, pitch and skid marks, and comes in twelve paint colours (or any colour, finish and livery in the [Garage](#garage)). No real brand names or logos.
 
 ## Thrusters and the air tank
 
@@ -129,6 +159,8 @@ The car carries cold-gas thrusters fed by one compressed-air tank (the HUD's AIR
 The bodywork takes damage in four zones: front, rear, left and right. A hit is the sudden change in the car's speed when it strikes the barrier or another car. Kerbs, landings, gentle nudges and scrapes along the wall leave no mark. A head-on hit at about 50 km/h dents the front badly, and one at about 90 km/h wrecks it. The panels crumple in where the car was hit, and shards of paint, trim and lens fly off with a shower of sparks. A badly damaged car smokes, loses up to 40% of its power, and a bent front corner pulls the steering towards it. The CAR meter next to the air gauge shows each zone going from green through yellow to red.
 
 When the car is wrecked, on its roof, lost far off the circuit, or when you press reset, a **flying tow Roadster** comes for it. The tow car is recovery orange, with its wheels folded flat into hover pods, blue jets, and amber beacons. It swoops down from the sky, hovers over the wreck, lowers a cable and hooks the car. Then it carries the car back over the circuit and sets it down on the road facing the right way, repaired and ready to drive. As you pull away, it flies on ahead through three rings of fire above the track and climbs back into the sky. The rivals' cars dent too, and the race fixes them up when it puts them back on the road.
+
+**Realism:** tyres smoke when they slide or spin, grass and dirt fly up when you run wide, sparks come off a hard landing or a scrape along the wall, and the circuit has braking boards (300, 200 and 100 m) before the five heaviest braking zones and marshal posts with orange flags around the lap.
 
 ## The circuit
 
@@ -149,6 +181,11 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Renderer, presets, lighting, surfaces | `src/render/renderer.ts`, `graphics.ts`, `environment.ts`, `surfaces.ts` |
 | Scenery, car body and model, live reflections, skid marks, cameras | `src/render/trackScene.ts`, `carBody.ts`, `carModel.ts`, `reflections.ts`, `skids.ts`, `cameras.ts` |
 | Vapour puffs and jet cones; canisters; fast copies of the car model for rivals; name tags | `src/render/vapour.ts`, `canisterScene.ts`, `cloneModel.ts`, `nameTag.ts` |
+| Fun Mode course (ramps, rings of fire, pads, boxes), scoring, items and the bots' choices | `src/sim/fun.ts` |
+| Fun Mode on screen: red ramps, flames and smoke, gantries, neon borders, boxes and pads; a stand-alone `FireRing` | `src/render/funScene.ts` |
+| Garage: saved choices, the wing and tyres on the physics car; the garage screen | `src/core/garage.ts`, `src/ui/garage.ts` |
+| Liveries and paint finishes (drawn in the paint shader, no UVs) | `src/render/livery.ts` |
+| Tyre smoke, dust and sparks; braking boards and marshal posts | `src/render/effects.ts`, `trackside.ts` |
 | Studio showroom | `src/showroom.ts` |
 | Input, audio, crash recovery | `src/core/` |
 | HUD and overlays | `src/ui/hud.ts` |
@@ -174,11 +211,13 @@ npm run typecheck     # TypeScript
 npm run sim-test      # headless handling test: 0-100, top speed, braking, grip, boost, hops,
                       # air control, laps with a line-following and a keyboard-style driver,
                       # a full 3-lap race against 5 bots, 11 bots at Newbie and at Pro,
-                      # crash damage from barrier hits, and the tow's whole flight
+                      # crash damage from barrier hits, the tow's whole flight, and Fun Mode
+                      # (every ramp jump for every class, rings, items, slipstream, a fun race)
 npm run track-check   # circuit length, corner radii and clearances
 npm run build         # production build in dist/
 npm run browser-test  # (with `npm run dev` running) drives the real game in headless Chromium,
-                      # keyboard and iPad controls, and saves screenshots to test-results/
+                      # keyboard and iPad controls, the Garage and Fun Mode, and saves
+                      # screenshots to test-results/
 npm run crash-shots   # (with `npm run dev` running) a crash into the barrier and the tow, in
                       # screenshots saved to test-results/
 npm run party-test    # party server: create, join by code, start lights, state relay, results
