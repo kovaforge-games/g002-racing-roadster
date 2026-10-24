@@ -8,6 +8,7 @@ import { catchErrors, safeModeRequested, startHeartbeat, showErrorBanner } from 
 import type { Quality } from './render/graphics';
 import type { TimeOfDay } from './render/environment';
 import { CLASS_ORDER, type ClassId } from './sim/classes';
+import { showBootInfo } from './ui/news';
 
 catchErrors();
 
@@ -24,6 +25,8 @@ async function boot() {
   const q = params.get('quality');
   const tod = params.get('tod');
   const safe = safeModeRequested() || params.has('safe');
+  const boot = document.querySelector('.boot');
+  const stopTips = boot && !params.has('showroom') ? showBootInfo(boot) : () => {};
   startHeartbeat();
   input.init();
   await initPhysics();
@@ -35,7 +38,7 @@ async function boot() {
     const car = params.get('car');
     const room = new Showroom(document.getElementById('app')!, q && ['low', 'medium', 'high', 'ultra'].includes(q) ? q as Quality : 'ultra',
       car && CLASS_ORDER.includes(car as ClassId) ? car as ClassId : 'rental');
-    document.querySelector('.boot')?.remove();
+    boot?.remove();
     document.querySelector('.overlay.title')?.remove();
     (window as unknown as { __showroom: Showroom }).__showroom = room;
     room.run();
@@ -47,11 +50,14 @@ async function boot() {
     safe,
     autodrive: params.has('autodrive'),
   });
-  document.querySelector('.boot')?.remove();
+  // compile the shaders behind the loading screen (in parallel where the browser can), and keep it
+  // up until the first frame is drawn, so the title doesn't sit frozen while that happens
+  await game.renderer.gl.compileAsync(game.scene, game.rig.cam).catch(() => {});
   (window as unknown as { __game: Game }).__game = game;
   game.renderer.gl.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); showErrorBanner('The graphics context was lost.'); });
   if (params.has('autodrive')) game.startSession('race');
   game.run();
+  requestAnimationFrame(() => requestAnimationFrame(() => { stopTips(); boot?.remove(); }));
 }
 
 boot().catch(e => showErrorBanner(String(e?.message ?? e)));

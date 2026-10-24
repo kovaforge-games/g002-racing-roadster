@@ -10,6 +10,7 @@ import { TouchControls } from './touch';
 import { CLASSES, CLASS_ORDER, type ClassId } from '../sim/classes';
 import { ownsCar, progress, hasLicense } from '../core/progress';
 import { LICENSES, MEDALS, medalTime, passes } from '../sim/licenses';
+import { newsList } from './news';
 import { CHAMPIONSHIPS, CHAMP_OPPONENTS as CHAMP_FIELD, REWARD_PLACE, newRun, standings, type ChampRun } from '../sim/championship';
 
 /** what the menus need from the game */
@@ -125,7 +126,12 @@ export class Menu {
   home() {
     const tiles = h('div', { class: 'tiles' }, ...MODES.map((m, k) => h('button', { class: `tile tile-${m.id}`, ...(k === 0 ? { autofocus: true } : {}), onclick: () => this.open(m.id) },
       h('span', { class: 'tile-name' }, m.name), h('span', { class: 'tile-about' }, m.about))));
-    this.screen(null, tiles, this.partyButtons);
+    this.screen(null, tiles, this.partyButtons, h('button', { class: 'btn news-btn', onclick: () => this.news() }, "What's new"));
+  }
+
+  private news() {
+    this.screen(() => this.home(), h('div', { class: 'card news-card' }, h('h2', null, "What's new"), newsList(),
+      h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: () => this.home() }, 'Back'))));
   }
 
   private open(id: string) {
