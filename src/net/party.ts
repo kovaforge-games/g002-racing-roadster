@@ -27,7 +27,21 @@ export function saveName(n: string) { store()?.setItem('rd-name', n); }
 /** "482913" -> "482 913" */
 export const formatCode = (c: string) => c.replace(/\D/g, '').slice(0, 6).replace(/^(\d{3})(?=\d)/, '$1 ');
 /** the address the QR code points at: this page with ?code=, so scanning it joins the party */
-export const joinUrl = (code: string) => `${location.origin}${location.pathname}?code=${code}`;
+export const joinUrl = (code: string, pass?: string) => `${location.origin}${location.pathname}?code=${code}${pass ? `&pass=${encodeURIComponent(pass)}` : ''}`;
+
+/**
+ * On the live site everything sits behind the invite gate, so a friend's phone that scans the QR
+ * code has no invite yet: the Worker signs a pass for this party that lets it in for a while
+ * (worker/invite.ts). Where there is no gate (local servers) there is no pass, and none is needed.
+ */
+export async function partyPass(code: string): Promise<string | undefined> {
+  try {
+    const r = await fetch(`${import.meta.env.BASE_URL}party-pass?code=${code}`, { cache: 'no-store' });
+    if (!r.ok || !(r.headers.get('Content-Type') ?? '').includes('json')) return undefined;
+    const { pass } = await r.json();
+    return typeof pass === 'string' && pass ? pass : undefined;
+  } catch { return undefined; }
+}
 
 export class PartyClient {
   private ws: WebSocket | null = null;
