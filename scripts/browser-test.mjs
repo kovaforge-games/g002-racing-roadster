@@ -1,5 +1,5 @@
 // Drives the real game in headless Chromium: home screen, race setup, countdown, keyboard driving,
-// the race field, the pause menu, boost and hop, and the autopilot demo. Saves screenshots to test-results/ and fails on page errors or if the car
+// the race field, the pause menu, boost and hop, the iPad controls, and the autopilot demo. Saves screenshots to test-results/ and fails on page errors or if the car
 // doesn't move.   node scripts/browser-test.mjs [url]   (start `npm run dev` or `npm run preview` first)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -89,6 +89,30 @@ await page.screenshot({ path: 'test-results/7-autodrive.png' });
 const s2 = await state();
 console.log(`autodrive: ${(s2.speed * 3.6).toFixed(0)} km/h, ${fps.toFixed(0)} fps (software rendering)`);
 check(s2.speed > 10, 'autopilot is driving');
+await page.close();
+
+// iPad mode: the pedals drive the car, the slider steers, the tyres and the readout show
+{
+  const tp = await browser.newPage({ viewport: { width: 1024, height: 768 }, hasTouch: true });
+  tp.on('pageerror', e => errors.push(e.message));
+  await tp.addInitScript(() => localStorage.setItem('rd-settings', JSON.stringify({ controls: 'touch' })));
+  await tp.goto(url + quality, { waitUntil: 'load' });
+  await tp.waitForFunction(() => window.__game, null, { timeout: 90000 });
+  await tp.click('.tile-practice', { timeout: 90000 }); await tp.click('button.start');
+  await tp.waitForSelector('.pedal.gas', { state: 'visible', timeout: 60000 });
+  const gas = await tp.locator('.pedal.gas').boundingBox();
+  await tp.mouse.move(gas.x + gas.width / 2, gas.y + gas.height / 2); await tp.mouse.down();
+  await tp.waitForFunction(() => window.__game.car.speed > 8, null, { timeout: 60000 }).catch(() => {});
+  check(await tp.evaluate(() => window.__game.car.speed > 8), 'iPad: the gas pedal drives');
+  await tp.evaluate(() => { const s = document.querySelector('.slider'), r = s.getBoundingClientRect();
+    s.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 9, clientX: r.left + r.width * 0.9, clientY: r.top + 20, bubbles: true })); });
+  check(await tp.waitForFunction(() => window.__game.inp.steer > 0.5, null, { timeout: 10000 }).then(() => true, () => false), 'iPad: the slider steers');
+  await tp.screenshot({ path: 'test-results/8-ipad.png' });
+  await tp.mouse.up();
+  check(await tp.evaluate(() => document.querySelectorAll('.pedal-row .tyre').length === 4 && /\d/.test(document.querySelector('.rd-kmh').textContent)), 'iPad: four tyres and the speed readout');
+  await tp.close();
+}
+
 check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
 await browser.close();
 process.exit(failed ? 1 : 0);

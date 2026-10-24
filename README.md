@@ -55,6 +55,22 @@ The bots are Lionelinni Bannanini, Gunvini Uvinini, Ramanini Banannini, Arvinini
 | Mute | M | |
 | Pause menu / help | Esc (or the pause button) / H | Start |
 
+## iPad and phones
+
+On a touch screen the game shows touch controls by itself (Settings → Touch controls can force them on or off):
+
+- **Right side:** a tall **gas** pedal and a **brake** pedal (hold brake when stopped to reverse). Above them, the **gear, RPM and km/h**. Beside them, the **four tyres** in their places on the car, each showing its temperature: **blue** when cold, **yellow** when warm and **red** when hot. **HOP** and **BOOST** buttons sit above.
+- **Left side:** steering, picked in Settings → Steering:
+  - **Slider** (the default): put your thumb anywhere on the bar and slide; let go and the wheels straighten.
+  - **Buttons:** hold left or right; steering ramps in like the keyboard.
+  - **Tilt:** tilt the iPad like a steering wheel. However you hold it when the countdown starts is straight ahead. iPad asks for motion access the first time you pick it.
+
+## Steering wheel and tyres
+
+The steering wheel at the bottom of the screen turns with your steering, and its screen shows the **gear** (D, or R when backing up: the car has one gear), the **motor RPM** and **km/h**. On a laptop the tyre panel above the dash shows the four tyre temperatures.
+
+Each tyre has its own temperature. Tyres leave the blankets at 45 °C (blue). Rolling under load, sliding, braking and accelerating warm them, and the air cools them, faster at speed and much faster once they are very hot. The air temperature follows the time of day. A normal lap brings them into the yellow (55-100 °C). Because the outside tyres in a corner and the fronts under braking work hardest, every tyre runs at a different temperature, and pushing hard or sliding turns some of them red. Overheated tyres (above 105 °C) lose a little grip.
+
 ## Party races
 
 - **Make party** on the home screen makes a party straight away and shows a **QR code** and a **6-digit code**. Friends scan the QR code with a phone camera, which opens the game and joins the party, or pick **Join party** and type the code (`?code=123456` in the address does the same).
@@ -93,7 +109,7 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Circuit centreline, elevation, kerbs | `src/sim/track.ts` |
 | Terrain height grid (road kept flat across) | `src/sim/terrain.ts` |
 | Rapier world: heightfield + barrier boxes | `src/sim/world.ts` |
-| Car physics (ray-cast vehicle, EV powertrain, aero, assists) | `src/sim/car.ts` |
+| Car physics (ray-cast vehicle, EV powertrain, aero, assists, tyre temperatures) | `src/sim/car.ts` |
 | Driving help (input side) | `src/sim/assist.ts` |
 | Grass and kerbs | `src/sim/surface.ts` |
 | Autopilot (tests and demo) | `src/sim/autopilot.ts` |
@@ -105,6 +121,7 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Input, audio, crash recovery | `src/core/` |
 | HUD and overlays | `src/ui/hud.ts` |
 | Home screen, race setup, settings, pause menu; saved settings | `src/ui/menu.ts`, `src/core/settings.ts` |
+| Touch controls: pedals, slider/buttons/tilt steering, readout and tyres | `src/ui/touch.ts` |
 | Racing line and speed profile; AI rivals; the race (grid, laps, positions) | `src/sim/racingLine.ts`, `rival.ts`, `race.ts` |
 | Game loop (120 Hz physics, interpolated rendering), sessions, countdown, laps, party races | `src/game.ts` |
 | Party server: lobby, codes, start lights, state relay, results | `server/party-core.ts` (shared), `worker/index.ts` (Durable Object), `server/server.ts` (local) |
@@ -121,8 +138,8 @@ npm run sim-test      # headless handling test: 0-100, top speed, braking, grip,
                       # a full 3-lap race against 5 bots, and 11 bots at Newbie and at Pro
 npm run track-check   # circuit length, corner radii and clearances
 npm run build         # production build in dist/
-npm run browser-test  # (with `npm run dev` running) drives the real game in headless Chromium
-                      # and saves screenshots to test-results/
+npm run browser-test  # (with `npm run dev` running) drives the real game in headless Chromium,
+                      # keyboard and iPad controls, and saves screenshots to test-results/
 npm run party-test    # party server: create, join by code, start lights, state relay, results
 npm run party-browser-test   # (with dev + party-server running) three browsers: create a party,
                       # join by the QR link and by typing the code, race, results
