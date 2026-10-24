@@ -191,19 +191,21 @@ export class Jets {
         // flying backwards, the travel follows the tail instead
         const dir = lv.x * fwd.x + lv.z * fwd.z < 0 ? -1 : 1;
         const sp = Math.hypot(lv.x, lv.z), hl = Math.hypot(fwd.x, fwd.z);
-        if (up.y > 0.5 && sp > 2 && hl > 0.3) {
+        if (sp > 2 && hl > 0.3) {
           // how far the nose points from the travel, + to the left
           let d = Math.atan2(fwd.x * dir, fwd.z * dir) - Math.atan2(lv.x, lv.z);
           d = Math.atan2(Math.sin(d), Math.cos(d));
           // the nose leads the travel by a little, never so far that the car spins round
           if (yawWant * d > 0) yawWant *= Math.max(0, Math.min(1, 2 - Math.abs(d) / JETS.airLead));
+          if (up.y < 0.5) d = 0;
           const turn = d * Math.min(1, JETS.airGrip * dt);
           const c = Math.cos(turn), sn = Math.sin(turn);
           const nx = lv.x * c + lv.z * sn, nz = -lv.x * sn + lv.z * c;
           const m = car.spec.mass;
           b.applyImpulse({ x: (nx - lv.x) * m, y: 0, z: (nz - lv.z) * m }, true);
         }
-        ty = I.y * k * (yawWant - wy);
+        // no steering: leave the yaw alone, like the other axes
+        if (steer) ty = I.y * k * (yawWant - wy);
       }
       if (tx || ty || tz) {
         b.addTorque({

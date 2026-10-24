@@ -245,19 +245,26 @@ function runRace(opts: RaceOptions) {
   for (let k = 0; k < 240; k++) { car.step(hold); race.stepRivals(); world.step(); race.afterStep(); }
   race.go();
   const boost = new Map<string, number>(), air = new Map<string, number>();
-  let t = 0;
+  let t = 0, stuckT = 0, playerResets = 0;
   while (t < 150 * race.laps && !race.allFinished) {
     const p = race.player;
     updateSurface(car, track, p.hint);
     const inp = applyDrivingHelp('easy', pilot.drive(car, p.hint, p.s, dt), car);
     car.step(inp); jets.step(car, inp, { boost: false, hop: false, airRoll: false });
     race.stepRivals(); world.step(); canisters.step(dt); race.afterStep(); t += dt;
+    // wedged against a wall: the line driver can't back out, so press R like a player would
+    stuckT = Math.abs(car.speed) < 1 && !race.player.finished ? stuckT + dt : 0;
+    if (stuckT > 3) {
+      stuckT = 0; playerResets++;
+      const s = race.player.s - 5, q = track.pointAt(s, 0);
+      car.place(q.x, q.y, q.z, track.headingAt(s)); jets.reset();
+    }
     for (const e of race.rivals) {
       if (e.jets.boosting) boost.set(e.name, (boost.get(e.name) ?? 0) + dt);
       if (e.gotAir) air.set(e.name, (air.get(e.name) ?? 0) + e.gotAir);
     }
   }
-  console.log(`${race.rivals.length} rivals, ${race.difficulty}, ${race.laps} laps:`);
+  console.log(`${race.rivals.length} rivals, ${race.difficulty}, ${race.laps} laps${playerResets ? ` (the player's car was reset ${playerResets}×)` : ''}:`);
   for (const e of race.standings) {
     console.log(`  P${e.pos} ${e.name.padEnd(25)} ${e.finishTime?.toFixed(1) ?? 'dnf'} s, best lap ${e.bestLap?.toFixed(1) ?? '-'} s` +
       (e.driver ? `, boost ${(boost.get(e.name) ?? 0).toFixed(1)} s, air picked up ${((air.get(e.name) ?? 0) * 100).toFixed(0)}%, resets ${e.resets}` : ''));
