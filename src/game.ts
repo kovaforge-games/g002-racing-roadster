@@ -183,11 +183,11 @@ export class Game implements PartyGame, MenuGame {
   constructor(container: HTMLElement, opts: GameOptions = {}) {
     this.terrain = new Terrain(this.track);
     this.world = buildWorld(this.track, this.terrain);
-    this.renderer = new Renderer(container);
+    this.renderer = new Renderer(container, !opts.safe);
     const graphics: GraphicsSettings = opts.safe
       ? { graphicsMode: 'custom', quality: 'low', resolutionScale: 1, shadows: false, postfx: false }
       : opts.quality
-        ? { graphicsMode: 'custom', quality: opts.quality, resolutionScale: 1, shadows: opts.quality !== 'low', postfx: opts.quality !== 'low' }
+        ? { graphicsMode: 'custom', quality: opts.quality, resolutionScale: 1, shadows: true, postfx: opts.quality !== 'low' }
         : { graphicsMode: 'auto', quality: 'high', resolutionScale: 1, shadows: true, postfx: true };
     this.renderer.configure(graphics);
     const quality = this.renderer.quality;
@@ -316,7 +316,9 @@ export class Game implements PartyGame, MenuGame {
     this.env?.dispose();
     const tod = TIMES[this.todIndex];
     this.env = new Environment(this.scene, this.renderer.gl, tod, this.renderer.quality);
-    this.renderer.setBloom(this.env.preset.night ? 0.8 : 0.12, this.env.preset.night ? 0.85 : 1.6);
+    // bloom only at night (lights, light bars): in daylight it bled the bright sky over the whole
+    // picture as a milky haze
+    this.renderer.setBloom(this.env.preset.night ? 0.8 : 0, 0.85);
     for (const v of this.views.values()) v.model.setNight(this.env.preset.night);
     this.vapour.setNight(this.env.preset.night);
     for (const r of this.rivals ?? []) r.model.setNight(this.env.preset.night);
