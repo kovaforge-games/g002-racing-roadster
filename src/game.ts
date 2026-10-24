@@ -18,6 +18,10 @@ import type { Quality } from './render/graphics';
 import { Environment, type TimeOfDay } from './render/environment';
 import { TrackScene } from './render/trackScene';
 import { CarModel, PAINTS } from './render/carModel';
+import { buildModel, type BodyModel } from './render/models';
+import { OpenWheelModel } from './render/openWheel';
+import { CLASSES, type ClassId } from './sim/classes';
+import { ownsCar } from './core/progress';
 import { ReflectionProbe } from './render/reflections';
 import { CameraRig } from './render/cameras';
 import { SkidMarks } from './render/skids';
@@ -51,6 +55,8 @@ const JET_MESSAGES: Partial<Record<JetEvent, [string, number]>> = {
 };
 /** average speed round a lap, for turning distance gaps into rough time gaps */
 const GAP_SPEED = 41;
+/** the player's race number on a single-seater (the bots carry their own, 1 to 11) */
+const PLAYER_NUMBER = 12;
 /** party grid: staggered pairs like the race grid, 5 m apart */
 const partySlot = (k: number) => [-10 - 5 * k, k % 2 ? 2.8 : -2.8] as const;
 /** car states sent to the party per second */
@@ -64,7 +70,7 @@ const snap = (): Snap => ({ p: new THREE.Vector3(), q: new THREE.Quaternion() })
 const css = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`;
 
 /** a rival's car on screen: model, thruster effects, skid marks and interpolation snapshots */
-interface RivalView { e: Entrant; model: CarModel; fx: JetFx; skids: SkidMarks; tag: NameTag; prev: Snap; curr: Snap; hop: boolean }
+interface RivalView { e: Entrant; model: BodyModel; fx: JetFx; skids: SkidMarks; tag: NameTag; prev: Snap; curr: Snap; hop: boolean }
 
 export interface GameOptions { quality?: Quality; safe?: boolean; tod?: TimeOfDay; autodrive?: boolean }
 
@@ -72,12 +78,18 @@ export class Game implements PartyGame, MenuGame {
   readonly track = new Track();
   readonly terrain: Terrain;
   readonly world;
-  readonly car: Car;
+  car: Car;
+  /** the class the player drives; the car and model change with it */
+  cls: ClassId = 'rental';
   readonly scene = new THREE.Scene();
   readonly renderer: Renderer;
   private env!: Environment;
   private trackScene: TrackScene;
-  readonly model = new CarModel();
+  /** the roadster body: the Rental's model, and the friends' cars in a party are copies of it */
+  private readonly roadModel = new CarModel();
+  /** each class's model and its thruster effects, built the first time the class is driven */
+  private views = new Map<ClassId, { model: BodyModel; fx: JetFx }>();
+  model: BodyModel = this.roadModel;
   private probe: ReflectionProbe | null = null;
   readonly rig = new CameraRig();
   private skids = new SkidMarks();
@@ -87,7 +99,7 @@ export class Game implements PartyGame, MenuGame {
   readonly canisters: Canisters;
   private canisterScene: CanisterScene;
   private vapour = new Vapour();
-  private jetFx: JetFx;
+  private jetFx!: JetFx;
   /** a hop was pressed this frame and not yet given to the physics */
   private hopQueued = false;
   /** jet events and pickups since the last frame */
@@ -165,22 +177,19 @@ export class Game implements PartyGame, MenuGame {
     this.trackScene = new TrackScene(this.track, this.terrain, quality);
     this.canisters = new Canisters(this.track);
     this.canisterScene = new CanisterScene(this.canisters);
-    this.scene.add(this.trackScene.group, this.canisterScene.group, this.model.root, this.skids.mesh, this.vapour.points);
-    if (quality === 'high' || quality === 'ultra') {
-      this.probe = new ReflectionProbe(quality === 'ultra' ? 256 : 128, quality === 'ultra' ? 2 : 4);
-      this.model.setReflections(this.probe.texture);
-    }
-    this.model.onSpoiler = up => { if (this.phase === 'driving') this.hud.message(up ? 'Spoiler up' : 'Spoiler down', 1); };
+    this.scene.add(this.trackScene.group, this.canisterScene.group, this.skids.mesh, this.vapour.points);
+    if (quality === 'high' || quality === 'ultra') this.probe = new ReflectionProbe(quality === 'ultra' ? 256 : 128, quality === 'ultra' ? 2 : 4);
+    this.roadModel.onSpoiler = up => { if (this.phase === 'driving') this.hud.message(up ? 'Spoiler up' : 'Spoiler down', 1); };
 
+    this.cls = ownsCar(setup.cls) ? setup.cls : 'rental';
     const g = this.track.pointAt(GRID_S, 0);
-    this.car = new Car(this.world, g.x, g.y, g.z, this.track.headingAt(GRID_S));
+    this.car = new Car(this.world, g.x, g.y, g.z, this.track.headingAt(GRID_S), CLASSES[this.cls].spec);
     this.setHelp(this.help);
     this.race = null;
-    this.jetFx = new JetFx(this.model.root, this.vapour);
+    this.useModel(this.cls);
     this.buildRace();
     this.resetLaps();
-    const best = Number(store()?.getItem('rd-best') ?? 0);
-    if (best > 0) this.bestLap = best;
+    this.loadBest();
     this.autodrive = !!opts.autodrive;
     if (opts.autodrive) { this.pilot = new Autopilot(this.track); }
 
@@ -188,7 +197,7 @@ export class Game implements PartyGame, MenuGame {
     this.hud.markAir(this.canisters.list);
     this.hud.setLights(-1);
     this.settle();
-    this.remote = new RemoteCars(this.model, this.car.wheels.reduce((a, w) => a + w.suspension, 0) / 4);
+    this.remote = new RemoteCars(this.roadModel, this.car.wheels.reduce((a, w) => a + w.suspension, 0) / 4);
     this.remote.setNight(this.env.preset.night);
     this.scene.add(this.remote.group);
     this.hud.ready();
@@ -198,14 +207,53 @@ export class Game implements PartyGame, MenuGame {
     input.onAny = () => audio.unlock();
   }
 
+  /** show the class's model as the player's car (building it the first time), in the same paint */
+  private useModel(cls: ClassId) {
+    const paint = this.paintIndex;
+    let v = this.views.get(cls);
+    if (!v) {
+      const model = cls === 'rental' ? this.roadModel : buildModel(cls);
+      if (model instanceof OpenWheelModel) model.setNumber(PLAYER_NUMBER);
+      if (this.probe) model.setReflections(this.probe.texture);
+      model.setNight(this.env.preset.night);
+      v = { model, fx: new JetFx(model.root, this.vapour) };
+      this.views.set(cls, v);
+    }
+    this.scene.remove(this.model.root);
+    this.model = v.model; this.jetFx = v.fx;
+    this.setPaint(paint);
+    this.scene.add(this.model.root);
+  }
+
+  /** drive another class: a new physics car with that class's spec, and its model */
+  setClass(cls: ClassId) {
+    if (cls === this.cls) return;
+    this.dropRace();
+    this.car.dispose();
+    this.cls = cls;
+    const g = this.track.pointAt(GRID_S, 0);
+    this.car = new Car(this.world, g.x, g.y, g.z, this.track.headingAt(GRID_S), CLASSES[cls].spec);
+    this.setHelp(this.help);
+    this.useModel(cls);
+    this.skids.clear();
+    this.loadBest();
+  }
+
+  /** each class has its own lap record */
+  private loadBest() {
+    const best = Number(store()?.getItem(`rd-best-${this.cls}`) ?? 0);
+    this.bestLap = best > 0 ? best : null;
+  }
+
   /** the race puts everyone on the grid; the rivals sit there behind the title screen */
   private buildRace() {
-    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: setup.opponents, laps: setup.laps, difficulty: setup.difficulty });
+    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: setup.opponents, laps: setup.laps, difficulty: setup.difficulty, cls: this.cls });
     for (const e of this.race.rivals) {
       // copies of the player's model: building one from scratch takes seconds
       const model = cloneModel(this.model);
       model.onSpoiler = undefined; // only the player's spoiler gets a call-out
       for (let k = 0; k < PAINTS.length && model.paintName !== PAINTS[e.paint].name; k++) model.nextPaint();
+      if (model instanceof OpenWheelModel) model.setNumber(e.number);
       model.setNight(this.env.preset.night);
       const tag = new NameTag(e.name, css(PAINTS[e.paint].color));
       const view: RivalView = { e, model, fx: new JetFx(model.root, this.vapour), skids: new SkidMarks(), tag, prev: snap(), curr: snap(), hop: false };
@@ -227,7 +275,7 @@ export class Game implements PartyGame, MenuGame {
     const tod = TIMES[this.todIndex];
     this.env = new Environment(this.scene, this.renderer.gl, tod, this.renderer.quality);
     this.renderer.setBloom(this.env.preset.night ? 0.8 : 0.12, this.env.preset.night ? 0.85 : 1.6);
-    this.model.setNight(this.env.preset.night);
+    for (const v of this.views.values()) v.model.setNight(this.env.preset.night);
     this.vapour.setNight(this.env.preset.night);
     for (const r of this.rivals ?? []) r.model.setNight(this.env.preset.night);
     this.remote?.setNight(this.env.preset.night);
@@ -242,9 +290,10 @@ export class Game implements PartyGame, MenuGame {
     const tod = Math.max(0, TIMES.indexOf(setup.tod));
     if (tod !== this.todIndex) { this.todIndex = tod; this.buildEnvironment(); }
     this.hud.title.classList.add('hidden');
+    if (ownsCar(setup.cls)) this.setClass(setup.cls);
     if (mode === 'race') {
       const r = this.race;
-      if (!r || r.laps !== setup.laps || r.difficulty !== setup.difficulty || r.rivals.length !== setup.opponents) { this.dropRace(); this.buildRace(); }
+      if (!r || r.laps !== setup.laps || r.difficulty !== setup.difficulty || r.rivals.length !== setup.opponents || r.cls !== this.cls) { this.dropRace(); this.buildRace(); }
       this.restartRace();
     } else if (mode === 'timetrial') {
       this.trialLaps = setup.laps;
@@ -406,7 +455,10 @@ export class Game implements PartyGame, MenuGame {
     document.body.classList.add('in-party');
     this.hud.title.classList.add('hidden');
     this.resume();
-    if (this.race) { this.dropRace(); this.toPartyGrid(0); }
+    // everyone in a party drives the Rental, so the cars match the friends' copies
+    this.setClass('rental');
+    if (this.race) this.dropRace();
+    this.toPartyGrid(0);
   }
 
   leftParty() {
@@ -600,7 +652,7 @@ export class Game implements PartyGame, MenuGame {
         const delta = this.bestLap !== null ? t - this.bestLap : null;
         this.lastLap = t;
         this.lapTimes.push(t);
-        if (this.bestLap === null || t < this.bestLap) { this.bestLap = t; store()?.setItem('rd-best', String(t)); this.hud.message('Best lap!', 2.5); }
+        if (this.bestLap === null || t < this.bestLap) { this.bestLap = t; store()?.setItem(`rd-best-${this.cls}`, String(t)); this.hud.message('Best lap!', 2.5); }
         this.hud.showDelta(delta);
       }
       if (this.lapStart === null || this.passedHalf) {
@@ -716,8 +768,8 @@ export class Game implements PartyGame, MenuGame {
     audio.update(this.car.speed, Math.max(-1, Math.min(1, this.car.powerKw / 300)), slip, this.kerb, this.paused || this.phase === 'title');
     audio.jets(Math.max(this.jets.boosting ? 1 : 0, nearBoost * 0.45), this.jets.attitude, this.jets.tank, this.paused || this.phase === 'title');
     this.hud.setAir(this.jets.tank, this.jets.boosting, this.jets.hopCooldown <= 0 && this.jets.tank >= 0.1, dt);
-    // one-speed EV: D, or R when backing up
-    const gear = this.car.speed < -0.5 ? 'R' : 'D';
+    // the gear number on a gearbox car; a one-speed EV shows D, and R when backing up
+    const gear = this.car.speed < -0.5 ? 'R' : this.car.gear ? String(this.car.gear) : 'D';
     if (input.touch) this.touch.show(gear, this.car.motorRpm, Math.abs(this.car.speed) * 3.6, this.car.tyreTemp);
     this.hud.update(dt, {
       speed: this.car.speed, powerKw: this.car.powerKw, lap: this.lap,
@@ -785,7 +837,7 @@ export class Game implements PartyGame, MenuGame {
     let title: string, note = '';
     if (this.session === 'timetrial' && !early) {
       const total = this.simTime - this.trialStart;
-      const key = `rd-trial-${this.trialLaps}`;
+      const key = `rd-trial-${this.cls}-${this.trialLaps}`;
       const record = Number(store()?.getItem(key) ?? 0);
       title = formatTime(total);
       if (!record || total < record) { store()?.setItem(key, String(total)); note = record ? `New record! ${(record - total).toFixed(3)} s faster than before.` : 'Your first record.'; }

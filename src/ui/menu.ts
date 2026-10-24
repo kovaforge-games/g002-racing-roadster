@@ -7,6 +7,8 @@ import { MAX_OPPONENTS } from '../sim/race';
 import { CAMERA_ORDER } from '../render/cameras';
 import type { TimeOfDay } from '../render/environment';
 import { TouchControls } from './touch';
+import { CLASSES, CLASS_ORDER, type ClassId } from '../sim/classes';
+import { ownsCar } from '../core/progress';
 
 /** what the menus need from the game */
 export interface MenuGame {
@@ -133,10 +135,23 @@ export class Menu {
   setupScreen(mode: SessionMode) {
     const name = mode === 'race' ? 'Quick Race' : mode === 'timetrial' ? 'Time Trial' : 'Practice';
     const about = h('div', { class: 'field-about' }, DIFFICULTIES[setup.difficulty].about);
+    if (!ownsCar(setup.cls)) setup.cls = 'rental';
     const start = () => { saveSetup(); this.game.startSession(mode); };
+    const startBtn = h('button', { class: 'btn big primary start', autofocus: true, onclick: start }, mode === 'practice' ? 'Drive' : 'Start') as HTMLButtonElement;
+    // the car: a locked class shows how to earn it, and can't be started
+    const carAbout = h('div', { class: 'field-about class-about' });
+    const showClass = (c: ClassId) => {
+      const k = CLASSES[c], owned = ownsCar(c);
+      carAbout.replaceChildren(k.about, owned ? '' : h('b', { class: 'locked-note' }, ` Locked: ${k.unlock}`));
+      startBtn.disabled = !owned;
+      if (owned) setup.cls = c;
+    };
+    const carField = field('Car', segmented(CLASS_ORDER.map(c => [c, `${ownsCar(c) ? '' : '🔒 '}${CLASSES[c].name}`]), setup.cls, showClass), carAbout);
+    showClass(setup.cls);
     this.screen(() => this.home(), h('div', { class: 'card setup' },
       h('h2', null, name),
       h('div', { class: 'track-line' }, h('span', { class: 'dim' }, 'Track'), h('b', null, this.game.trackName)),
+      carField,
       field('Time of day', segmented(TODS, setup.tod, v => { setup.tod = v; })),
       mode === 'race' ? field('Difficulty', segmented(DIFFICULTY_ORDER.map(d => [d, DIFFICULTIES[d].label]), setup.difficulty, v => { setup.difficulty = v; about.textContent = DIFFICULTIES[v].about; }), about) : null,
       mode === 'race' ? h('div', { class: 'field-pair' },
@@ -145,7 +160,7 @@ export class Menu {
       mode === 'timetrial' ? field('Laps', stepper(setup.laps, 1, 10, v => { setup.laps = v; }, 'laps')) : null,
       h('div', { class: 'row' },
         h('button', { class: 'btn big', onclick: () => this.home() }, 'Back'),
-        h('button', { class: 'btn big primary start', autofocus: true, onclick: start }, mode === 'practice' ? 'Drive' : 'Start'))));
+        startBtn)));
   }
 
   /** settings, from the home screen or the pause menu */

@@ -297,3 +297,8 @@ body.touch-mode .air { left: 16px; right: auto; bottom: 140px; transform: scale(
 .showroom-caption a { color: #38e8ff; pointer-events: auto; text-decoration: none; font-weight: 700; }
 .showroom-caption .paint { margin-top: 6px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); }
 .title .showroom-link { margin-top: 12px; font-size: 13px; color: #38e8ff; text-decoration: none; font-weight: 700; letter-spacing: 0.08em; }
+
+/* the car picker: a locked class says how to earn it */
+.class-about { min-height: 34px; }
+.locked-note { color: #ffcf6b; font-weight: 700; }
+.btn.primary:disabled { opacity: 0.45; cursor: not-allowed; }

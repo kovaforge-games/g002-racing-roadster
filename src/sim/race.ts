@@ -30,6 +30,8 @@ export interface Entrant extends CarView {
   driver: RivalDriver | null;
   /** index into the car paints */
   paint: number;
+  /** race number on the car: a bot's own number (bot 1 to bot 11); 0 for the player */
+  number: number;
   hint: number;
   /** line crossings: 0 on the grid, 1 on the first lap, laps + 1 when finished */
   lap: number;
@@ -77,8 +79,8 @@ export class Race {
     const spec: CarSpec = this.cls ? CLASSES[this.cls].spec : CAR;
     this.line = racingLine(track);
     this.profile = this.cls ? speedProfile(track, spec.grip, CLASSES[this.cls].brake, spec.topSpeed + 8, aeroOf(spec)) : speedProfile(track, 1.55);
-    const blank = (name: string, car: Car, jets: Jets, driver: RivalDriver | null, paint: number): Entrant => ({
-      name, car, jets, driver, paint, s: 0, lateral: 0, speed: 0, hint: -1, lap: 0, passedHalf: false, prevS: 0,
+    const blank = (name: string, car: Car, jets: Jets, driver: RivalDriver | null, paint: number, number = 0): Entrant => ({
+      name, car, jets, driver, paint, number, s: 0, lateral: 0, speed: 0, hint: -1, lap: 0, passedHalf: false, prevS: 0,
       dist: 0, pos: 0, finished: false, finishTime: null, estimated: false, lapStart: null, bestLap: null, flipT: 0, gotAir: 0, resets: 0, braking: false, washed: 0,
     });
     this.player = blank('You', playerCar, playerJets, null, 0);
@@ -86,7 +88,7 @@ export class Race {
       const def = rivalAt(RIVALS[k], this.difficulty);
       const car = new Car(world, 0, 0, 0, 0, spec);
       car.stability = 0.6;
-      this.entrants.push(blank(def.name, car, new Jets(), new RivalDriver(def, track, this.line, this.profile), k + 1));
+      this.entrants.push(blank(def.name, car, new Jets(), new RivalDriver(def, track, this.line, this.profile), k + 1, k + 1));
     }
     // fastest rivals at the front, the player in their slot
     this.entrants.splice(playerSlot(rivals), 0, this.player);

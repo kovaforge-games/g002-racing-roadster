@@ -4,6 +4,7 @@ import type { Difficulty } from '../sim/rival';
 import type { CameraMode } from '../render/cameras';
 import type { Quality } from '../render/graphics';
 import type { TimeOfDay } from '../render/environment';
+import type { ClassId } from '../sim/classes';
 
 export interface Settings {
   help: DrivingHelp;
@@ -25,10 +26,12 @@ export interface RaceSetup {
   difficulty: Difficulty;
   opponents: number;
   laps: number;
+  /** the car class you race in */
+  cls: ClassId;
 }
 
 const DEFAULT_SETTINGS: Settings = { help: 'easy', camera: 'chase', quality: 'auto', sound: true, controls: 'auto', steering: 'slider' };
-const DEFAULT_SETUP: RaceSetup = { tod: 'noon', difficulty: 'club', opponents: 5, laps: 3 };
+const DEFAULT_SETUP: RaceSetup = { tod: 'noon', difficulty: 'club', opponents: 5, laps: 3, cls: 'rental' };
 
 function load<T extends object>(key: string, defaults: T): T {
   try {

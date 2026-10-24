@@ -48,7 +48,7 @@ export const CLASSES: Record<ClassId, CarClass> = {
   '0x1.5': {
     id: '0x1.5', name: '0x1.5', body: 'open', brake: 15,
     about: 'The first single-seater: light and nimble, with a 6-speed gearbox. 300 kW, 260 km/h. The National B license car.',
-    unlock: 'Yours from the start.',
+    unlock: 'Earn the National B license.',
     spec: single({ power: 300000, maxDriveForce: 11500, topSpeed: 72, grip: 1.75, liftArea: 2.2, dragArea: 0.72, brakeDecel: 17, gears: 6, redline: 11000 }),
   },
   '0x2.5': {
