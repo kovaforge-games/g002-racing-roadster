@@ -72,7 +72,7 @@ The thruster controls follow [Road Thruster](https://roadthruster.versezero.com/
 | Handbrake | X or Ctrl | X |
 | Look back | B | Left stick click |
 | Camera (chase, far, hood, bumper) | C | Y |
-| Reset to the track | R | Back |
+| Call the tow (back to the track) | R | Back |
 | Paint colour | P | |
 | Driving help: Easy / Medium / Off | 1 / 2 / 3 | |
 | Time of day | T | |
@@ -124,6 +124,12 @@ The car carries cold-gas thrusters fed by one compressed-air tank (the HUD's AIR
 - **Refilling:** the tank never refills by itself. Six rows of glowing air canisters sit off the racing line around the lap (cyan dots on the map); each one adds 12% and comes back 8 seconds after it is taken.
 - The debris fence on the barriers is solid, so a hop can't clear the circuit.
 
+## Crashes and the flying tow
+
+The bodywork takes damage in four zones: front, rear, left and right. A hit is the sudden change in the car's speed when it strikes the barrier or another car. Kerbs, landings, gentle nudges and scrapes along the wall leave no mark. A head-on hit at about 50 km/h dents the front badly, and one at about 90 km/h wrecks it. The panels crumple in where the car was hit, and shards of paint, trim and lens fly off with a shower of sparks. A badly damaged car smokes, loses up to 40% of its power, and a bent front corner pulls the steering towards it. The CAR meter next to the air gauge shows each zone going from green through yellow to red.
+
+When the car is wrecked, on its roof, lost far off the circuit, or when you press reset, a **flying tow Roadster** comes for it. The tow car is recovery orange, with its wheels folded flat into hover pods, blue jets, and amber beacons. It swoops down from the sky, hovers over the wreck, lowers a cable and hooks the car. Then it carries the car back over the circuit and sets it down on the road facing the right way, repaired and ready to drive. As you pull away, it flies on ahead through three rings of fire above the track and climbs back into the sky. The rivals' cars dent too, and the race fixes them up when it puts them back on the road.
+
 ## The circuit
 
 Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses and fast sweepers, and gentle elevation changes (about ±6 m). Kerbs line every corner, concrete barriers and a debris fence run the whole lap, and the main straight has a grandstand, a start gantry with lights, and a charging pavilion. The landscape rolls into forested hills and snow-capped mountains.
@@ -153,6 +159,8 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Single-seater model; the model for each class; license gates | `src/render/openWheel.ts`, `models.ts`, `gates.ts` |
 | Saved career progress (cars, medals, licenses, championships) | `src/core/progress.ts` |
 | Reference times for the license targets and the bots' qualifying laps | `scripts/license-times.ts` |
+| Crash damage zones; the tow's flight | `src/sim/damage.ts`, `tow.ts` |
+| Dents; debris, sparks and smoke; the tow car, its cable and the rescue camera; rings of fire; the damage meter | `src/render/damage.ts`, `damageFx.ts`, `towScene.ts`, `fireRing.ts`, `src/ui/damageHud.ts` |
 | Game loop (120 Hz physics, interpolated rendering), sessions, countdown, laps, party races | `src/game.ts` |
 | Party server: lobby, codes, start lights, state relay, results | `server/party-core.ts` (shared), `worker/index.ts` (Durable Object), `server/server.ts` (local) |
 | Party client, screens with the QR code, the friends' cars | `src/net/party.ts`, `src/ui/partyUi.ts`, `src/render/remoteCars.ts` |
@@ -165,11 +173,14 @@ Physics runs at a fixed 120 Hz and the renderer interpolates between steps, so t
 npm run typecheck     # TypeScript
 npm run sim-test      # headless handling test: 0-100, top speed, braking, grip, boost, hops,
                       # air control, laps with a line-following and a keyboard-style driver,
-                      # a full 3-lap race against 5 bots, and 11 bots at Newbie and at Pro
+                      # a full 3-lap race against 5 bots, 11 bots at Newbie and at Pro,
+                      # crash damage from barrier hits, and the tow's whole flight
 npm run track-check   # circuit length, corner radii and clearances
 npm run build         # production build in dist/
 npm run browser-test  # (with `npm run dev` running) drives the real game in headless Chromium,
                       # keyboard and iPad controls, and saves screenshots to test-results/
+npm run crash-shots   # (with `npm run dev` running) a crash into the barrier and the tow, in
+                      # screenshots saved to test-results/
 npm run party-test    # party server: create, join by code, start lights, state relay, results
 npm run party-browser-test   # (with dev + party-server running) three browsers: create a party,
                       # join by the QR link and by typing the code, race, results

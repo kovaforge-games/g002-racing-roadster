@@ -110,6 +110,9 @@ export class Car {
   readonly tyreTemp = [TYRE.blanket, TYRE.blanket, TYRE.blanket, TYRE.blanket];
   private tyreForce = [0, 0, 0, 0];
   abs = true;
+  /** crash damage (sim/damage.ts): motor power left, and a steering pull from a bent corner */
+  powerMul = 1;
+  steerPull = 0;
 
   // telemetry
   speed = 0;          // forward speed, m/s (negative in reverse)
@@ -123,6 +126,8 @@ export class Car {
   airborne = false;
   latAccel = 0; longAccel = 0;
   impact = 0;         // largest sudden velocity change this frame (m/s), for camera shake and sound
+  /** the velocity change (world m/s) of that impact, for crash damage */
+  impactVec = { x: 0, y: 0, z: 0 };
 
   private prevVel = { x: 0, y: 0, z: 0 };
   private steerAngle = 0;
@@ -167,6 +172,7 @@ export class Car {
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.prevVel = { x: 0, y: 0, z: 0 };
+    this.impact = 0;
     this.steerAngle = 0;
     this.gear = this.spec.gears ? 1 : 0;
   }
@@ -198,7 +204,7 @@ export class Car {
     this.airborne = grounded === 0;
 
     // steering: speed-sensitive lock, eased so the car can't snap its wheels across
-    const target = -inp.steer * steerLockAt(vF, S.steerLock);   // positive road-wheel angle steers left
+    const target = -Math.max(-1, Math.min(1, inp.steer + this.steerPull)) * steerLockAt(vF, S.steerLock);   // positive road-wheel angle steers left
     this.steerAngle += Math.max(-3 * dt, Math.min(3 * dt, target - this.steerAngle));
     // a touch of Ackermann: the inside wheel turns a little more
     const ack = 1 + Math.min(0.15, Math.abs(this.steerAngle) * 0.5);
@@ -217,6 +223,7 @@ export class Car {
       if (vF > S.topSpeed) drive *= Math.max(0, 1 - (vF - S.topSpeed) / 2);
     }
     if (S.gears) drive *= this.gearbox(vF, dt);
+    drive *= this.powerMul;
     const braking = !reversing && inp.brake > 0.02;
     let regen = 0;
     for (let i = 0; i < 4; i++) {
@@ -296,7 +303,10 @@ export class Car {
     // telemetry
     const accX = (lv.x - this.prevVel.x) / dt, accY = (lv.y - this.prevVel.y) / dt, accZ = (lv.z - this.prevVel.z) / dt;
     const jump = Math.hypot(lv.x - this.prevVel.x, lv.y - this.prevVel.y, lv.z - this.prevVel.z);
-    if (jump > 1.2 * G * dt * 3) this.impact = Math.max(this.impact, jump);
+    if (jump > 1.2 * G * dt * 3 && jump > this.impact) {
+      this.impact = jump;
+      this.impactVec = { x: lv.x - this.prevVel.x, y: lv.y - this.prevVel.y, z: lv.z - this.prevVel.z };
+    }
     const smooth = Math.min(1, dt * 8);
     this.latAccel += ((accX * right.x + accY * right.y + accZ * right.z) - this.latAccel) * smooth;
     this.longAccel += ((accX * fwd.x + accY * fwd.y + accZ * fwd.z) - this.longAccel) * smooth;

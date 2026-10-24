@@ -141,7 +141,7 @@ export class Hud {
         <tr><td>Handbrake</td><td>X or Ctrl · X</td></tr>
         <tr><td>Look back</td><td>B · left stick click</td></tr>
         <tr><td>Camera</td><td>C · Y</td></tr>
-        <tr><td>Reset to track</td><td>R · Back</td></tr>
+        <tr><td>Call the tow (back to the track)</td><td>R · Back</td></tr>
         <tr><td>Paint colour</td><td>P</td></tr>
         <tr><td>Driving help</td><td>1 Easy · 2 Medium · 3 Off</td></tr>
         <tr><td>Time of day</td><td>T</td></tr>

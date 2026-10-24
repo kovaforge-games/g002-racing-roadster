@@ -320,6 +320,17 @@ export class CarModel {
     for (const m of this.reflective) { m.envMap = tex; m.needsUpdate = true; }
   }
 
+  /** the body shell, built in the ground frame: crash dents go here (render/damage.ts) */
+  get bodyShell() { return this.shell; }
+
+  /** the flying tow car: fold the wheels flat under the body as hover pods (0 on the road, 1 flat) */
+  hoverWheels(t: number) {
+    for (const w of this.wheels) w.pivot.rotation.set(0, 0, (w.left ? -1 : 1) * t * Math.PI / 2);
+  }
+
+  /** the wheel pivots, for the tow car's hover jets */
+  get wheelPivots() { return this.wheels.map(w => w.pivot); }
+
   get paintName() { return PAINTS[this.paintIndex].name; }
 
   nextPaint() {

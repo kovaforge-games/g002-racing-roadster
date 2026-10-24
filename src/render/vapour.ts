@@ -61,6 +61,9 @@ export class Vapour {
   /** puffs are lit roughly like the scene: dimmer at night */
   setNight(night: boolean) { this.mat.uniforms.uColor.value.set(night ? 0x56606e : 0xeef3f8); }
 
+  /** a different colour of puff: dark smoke from a damaged car uses its own pool */
+  setColor(hex: number) { this.mat.uniforms.uColor.value.set(hex); }
+
   emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, size: number, life: number, alpha = 0.55) {
     const k = this.next++ % MAX;
     this.pos.set([x, y, z], k * 3);
