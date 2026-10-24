@@ -1,6 +1,7 @@
 // Career progress, kept in localStorage: the cars you own, your license test medals, the licenses
 // you hold and your best championship finishes. ?unlock in the address opens everything (testing).
 import type { ClassId } from '../sim/classes';
+import type { ChampRun } from '../sim/championship';
 
 export type Medal = 'gold' | 'silver' | 'bronze';
 
@@ -11,10 +12,12 @@ export interface Progress {
   licenses: string[];
   /** best overall finish in each championship */
   champs: Record<string, number>;
+  /** the championship in progress, if any */
+  run: ChampRun | null;
 }
 
 const KEY = 'rd-progress';
-const DEFAULT: Progress = { cars: ['rental'], medals: {}, licenses: [], champs: {} };
+const DEFAULT: Progress = { cars: ['rental'], medals: {}, licenses: [], champs: {}, run: null };
 
 function load(): Progress {
   try {

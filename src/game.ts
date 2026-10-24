@@ -21,7 +21,8 @@ import { CarModel, PAINTS } from './render/carModel';
 import { buildModel, type BodyModel } from './render/models';
 import { OpenWheelModel } from './render/openWheel';
 import { CLASSES, type ClassId } from './sim/classes';
-import { ownsCar } from './core/progress';
+import { ownsCar, giveCar, progress, saveProgress } from './core/progress';
+import { champById, scoreRound, standings, isOver, CHAMP_OPPONENTS, REWARD_PLACE, type ChampRun } from './sim/championship';
 import { ReflectionProbe } from './render/reflections';
 import { CameraRig } from './render/cameras';
 import { SkidMarks } from './render/skids';
@@ -36,7 +37,7 @@ import { Hud, formatTime } from './ui/hud';
 import { PartyUi, type PartyGame } from './ui/partyUi';
 import { Menu, type MenuGame } from './ui/menu';
 import { TouchControls, touchDevice } from './ui/touch';
-import { settings, setup, saveSettings, type SessionMode } from './core/settings';
+import { settings, setup, saveSettings, type SessionMode, type RaceSetup } from './core/settings';
 import type { PartyClient } from './net/party';
 
 const TIMES: TimeOfDay[] = ['noon', 'sunset', 'night', 'morning'];
@@ -109,6 +110,13 @@ export class Game implements PartyGame, MenuGame {
   /** null in practice, time trial and party races */
   race: Race | null;
   session: SessionMode = 'race';
+  /** the setup the current session was started with (Restart uses it again) */
+  private current: RaceSetup = { ...setup };
+  /** the championship this race is a round of */
+  champ: ChampRun | null = null;
+  private standingsShown = false;
+  /** the results still have cars racing, so they refresh every second */
+  private resultsPending = false;
   readonly trackName = TRACK_NAME;
   readonly menu: Menu;
   readonly touch = new TouchControls();
@@ -247,7 +255,8 @@ export class Game implements PartyGame, MenuGame {
 
   /** the race puts everyone on the grid; the rivals sit there behind the title screen */
   private buildRace() {
-    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: setup.opponents, laps: setup.laps, difficulty: setup.difficulty, cls: this.cls });
+    const s = this.current;
+    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: s.opponents, laps: s.laps, difficulty: s.difficulty, cls: this.cls });
     for (const e of this.race.rivals) {
       // copies of the player's model: building one from scratch takes seconds
       const model = cloneModel(this.model);
@@ -281,22 +290,25 @@ export class Game implements PartyGame, MenuGame {
     this.remote?.setNight(this.env.preset.night);
   }
 
-  /** from the setup screen: a race, time trial or practice with the current race setup */
-  startSession(mode: SessionMode) {
+  /** from the setup screen: a race, time trial or practice with the race setup (a championship
+   *  round brings its own) */
+  startSession(mode: SessionMode, s: RaceSetup = setup, champ: ChampRun | null = null) {
     audio.unlock();
     if (this.partyUi.active) return;
     this.resume();
     this.session = mode;
-    const tod = Math.max(0, TIMES.indexOf(setup.tod));
+    this.current = { ...s };
+    this.champ = champ;
+    const tod = Math.max(0, TIMES.indexOf(s.tod));
     if (tod !== this.todIndex) { this.todIndex = tod; this.buildEnvironment(); }
     this.hud.title.classList.add('hidden');
-    if (ownsCar(setup.cls)) this.setClass(setup.cls);
+    if (ownsCar(s.cls)) this.setClass(s.cls);
     if (mode === 'race') {
       const r = this.race;
-      if (!r || r.laps !== setup.laps || r.difficulty !== setup.difficulty || r.rivals.length !== setup.opponents || r.cls !== this.cls) { this.dropRace(); this.buildRace(); }
+      if (!r || r.laps !== s.laps || r.difficulty !== s.difficulty || r.rivals.length !== s.opponents || r.cls !== this.cls) { this.dropRace(); this.buildRace(); }
       this.restartRace();
     } else if (mode === 'timetrial') {
-      this.trialLaps = setup.laps;
+      this.trialLaps = s.laps;
       this.soloStart(TRIAL_S);
       this.restartCommon();
     } else {
@@ -354,7 +366,7 @@ export class Game implements PartyGame, MenuGame {
     this.skids.clear(); this.vapour.clear();
     for (const r of this.rivals) r.skids.clear();
     this.pilot = this.autodrive ? new Autopilot(this.track) : null;
-    this.finishT = 0; this.resultsShown = false; this.lastPos = 0; this.lastRaceLap = 0; this.lapTimes = [];
+    this.finishT = 0; this.resultsShown = false; this.standingsShown = false; this.lastPos = 0; this.lastRaceLap = 0; this.lapTimes = [];
     this.hud.results.classList.add('hidden');
     this.settle();
     this.resetLaps();
@@ -409,7 +421,44 @@ export class Game implements PartyGame, MenuGame {
   /** the same session again from the start */
   restart() {
     if (this.party) { this.resume(); return; }
-    this.startSession(this.session);
+    this.startSession(this.session, this.current, this.champ);
+  }
+
+  /** the next round of a championship */
+  startChampionship(run: ChampRun) {
+    const c = champById(run.id), r = c.rounds[run.round];
+    progress.run = run; saveProgress();
+    this.startSession('race', { tod: r.tod, laps: r.laps, difficulty: run.difficulty, opponents: CHAMP_OPPONENTS, cls: c.cls }, run);
+    this.hud.message(`${c.name} · Round ${run.round + 1} of ${c.rounds.length}`, 3);
+  }
+
+  /** score the round, then show the championship standings (and the prize after the last round) */
+  private champRoundDone() {
+    const run = this.champ!, c = champById(run.id), race = this.race!;
+    if (race.standings.some(e => !e.finished)) race.finishNow();
+    const gained = scoreRound(run, race.standings);
+    const table = standings(run), me = table.findIndex(r => r.name === 'You') + 1;
+    const rows = table.map((r, k) => ({ pos: k + 1, name: r.name, you: r.name === 'You', time: `${r.points} pts`, best: gained[r.name] ? `+${gained[r.name]}` : '' }));
+    let title: string, note = '';
+    const actions: { label: string; primary?: boolean; run: () => void }[] = [];
+    if (isOver(run)) {
+      title = me === 1 ? 'CHAMPION!' : `P${me} OVERALL`;
+      progress.champs[c.id] = Math.min(progress.champs[c.id] ?? 99, me);
+      progress.run = null;
+      const prize = CLASSES[c.reward].name;
+      if (me <= REWARD_PLACE) note = giveCar(c.reward) ? `You earned the ${prize}! Pick it in the Car row before a race.` : `Top ${REWARD_PLACE} again. You already have the ${prize}.`;
+      else note = `Finish in the top ${REWARD_PLACE} overall to earn the ${prize}. Try again!`;
+      this.champ = null;
+      actions.push({ label: 'Menu', primary: true, run: () => this.quitToMenu() });
+    } else {
+      title = `ROUND ${run.round} OF ${c.rounds.length}`;
+      note = `You are P${me} with ${run.points.You ?? 0} points. Top ${REWARD_PLACE} at the end earns the ${CLASSES[c.reward].name}.`;
+      progress.run = run;
+      actions.push({ label: `Round ${run.round + 1}`, primary: true, run: () => this.startChampionship(run) }, { label: 'Menu', run: () => this.quitToMenu() });
+    }
+    saveProgress();
+    this.standingsShown = true;
+    this.hud.showResults(title, c.name.toUpperCase(), rows, actions, note);
   }
 
   /** end the session now and show how it went */
@@ -431,6 +480,8 @@ export class Game implements PartyGame, MenuGame {
 
   quitToMenu() {
     if (this.party) { this.resume(); return; }
+    // a championship in progress stays saved: Continue picks it up from the menu
+    this.champ = null;
     this.toTitle();
     this.menu.home();
     this.hud.title.classList.remove('hidden');
@@ -785,7 +836,7 @@ export class Game implements PartyGame, MenuGame {
     const race = this.race!, me = race.player;
     if (this.phase === 'finished') {
       this.finishT += dt;
-      if (this.finishT > 2 && (!this.resultsShown || Math.floor(this.finishT) !== Math.floor(this.finishT - dt))) this.showResults();
+      if (this.finishT > 2 && !this.standingsShown && (!this.resultsShown || this.resultsPending && Math.floor(this.finishT) !== Math.floor(this.finishT - dt))) this.showResults();
     }
     // a quick call-out when the player gains places
     if (this.phase === 'driving' && this.lastPos && me.pos < this.lastPos && race.time > 3) this.hud.message(`P${me.pos}`, 1.1);
@@ -812,6 +863,7 @@ export class Game implements PartyGame, MenuGame {
       time: !e.finished ? 'racing…' : e === lead ? formatTime(e.finishTime) + est(e) : `+${(e.finishTime! - lead.finishTime!).toFixed(3)}${est(e)}`,
     }));
     const me = race.player.pos;
+    this.resultsPending = order.some(e => !e.finished);
     this.hud.showResults(me === 1 ? 'YOU WIN' : `P${me}`, 'RESULTS', rows, this.afterActions(),
       order.some(e => e.estimated) ? 'Session finished early: times for drivers still racing are estimates.' : '');
     this.resultsShown = true;
@@ -819,6 +871,7 @@ export class Game implements PartyGame, MenuGame {
 
   /** the buttons under the results */
   private afterActions() {
+    if (this.champ && this.session === 'race') return [{ label: 'Standings', primary: true, run: () => this.champRoundDone() }, { label: 'Retry round', run: () => this.restart() }];
     const again = this.session === 'race' ? 'Race again' : this.session === 'timetrial' ? 'Try again' : 'Drive again';
     return [{ label: again, primary: true, run: () => this.restart() }, { label: 'Menu', run: () => this.quitToMenu() }];
   }

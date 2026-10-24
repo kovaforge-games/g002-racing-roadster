@@ -8,12 +8,15 @@ import { CAMERA_ORDER } from '../render/cameras';
 import type { TimeOfDay } from '../render/environment';
 import { TouchControls } from './touch';
 import { CLASSES, CLASS_ORDER, type ClassId } from '../sim/classes';
-import { ownsCar } from '../core/progress';
+import { ownsCar, progress } from '../core/progress';
+import { CHAMPIONSHIPS, CHAMP_OPPONENTS as CHAMP_FIELD, REWARD_PLACE, newRun, standings, type ChampRun } from '../sim/championship';
 
 /** what the menus need from the game */
 export interface MenuGame {
   /** start a session with the current race setup */
   startSession(mode: SessionMode): void;
+  /** race the next round of a championship */
+  startChampionship(run: ChampRun): void;
   resume(): void;
   /** the on-screen pause button and Esc: pause or resume (in a party, open or close the menu) */
   togglePause(): void;
@@ -55,7 +58,6 @@ const MODES: { id: string; name: string; about: string }[] = [
 /** modes still being built: what the screen says about them */
 const SOON: Record<string, string> = {
   weekend: 'A full weekend at one track: a practice session, qualifying to set your grid slot, then the race.',
-  championship: 'Start in the Rental car and race your way up: win 3 races to earn 0x2.5, then 4 more to earn 0x3.5.',
   licenses: 'National B, National A and International A: five A-to-B tests each in the 0x1.5, 0x2.5 and 0x3.5 cars. Silver in every test earns the license.',
   replays: 'Every race saved so you can watch it again from any camera.',
 };
@@ -85,6 +87,9 @@ function stepper(value: number, min: number, max: number, change: (v: number) =>
   minus.disabled = v <= min; plus.disabled = v >= max;
   return h('div', { class: 'stepper' }, minus, out, plus);
 }
+
+const TOD_LABEL: Record<TimeOfDay, string> = Object.fromEntries(TODS) as Record<TimeOfDay, string>;
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`;
 
 const field = (label: string, ...kids: (Node | null)[]) => h('div', { class: 'field' }, h('div', { class: 'field-label' }, label), ...kids);
 
@@ -122,6 +127,7 @@ export class Menu {
     if (id === 'quick') this.setupScreen('race');
     else if (id === 'timetrial') this.setupScreen('timetrial');
     else if (id === 'practice') this.setupScreen('practice');
+    else if (id === 'championship') this.championships();
     else if (id === 'settings') this.screen(() => this.home(), this.settingsCard(() => this.home()));
     else {
       const m = MODES.find(x => x.id === id)!;
@@ -161,6 +167,38 @@ export class Menu {
       h('div', { class: 'row' },
         h('button', { class: 'btn big', onclick: () => this.home() }, 'Back'),
         startBtn)));
+  }
+
+  /** the championships: each one's races, what it earns, and Start or Continue */
+  private championships() {
+    const run = progress.run;
+    const about = h('div', { class: 'field-about' }, DIFFICULTIES[setup.difficulty].about);
+    const cards = CHAMPIONSHIPS.map(c => {
+      const owned = ownsCar(c.cls), mine = run?.id === c.id ? run : null;
+      const best = progress.champs[c.id];
+      const rounds = h('ol', { class: 'rounds' }, ...c.rounds.map((r, k) => {
+        const place = mine?.finishes.You?.[k];
+        return h('li', { class: place ? 'done' : mine && k === mine.round ? 'next' : '' },
+          h('span', null, `Round ${k + 1}`), h('span', { class: 'dim' }, `${TOD_LABEL[r.tod]} · ${r.laps} laps`), h('b', null, place ? ordinal(place) : ''));
+      }));
+      const status = !owned ? h('p', { class: 'locked-note' }, `🔒 Needs the ${CLASSES[c.cls].name}: ${CLASSES[c.cls].unlock}`)
+        : mine ? h('p', { class: 'dim' }, `In progress: you are ${ordinal(standings(mine).findIndex(r => r.name === 'You') + 1)} with ${mine.points.You ?? 0} points.`)
+        : best ? h('p', { class: 'dim' }, `Best finish: ${ordinal(best)} overall.`) : null;
+      const go = (fresh: boolean) => { saveSetup(); this.game.startChampionship(fresh || !mine ? newRun(c.id, setup.difficulty) : mine); };
+      const buttons = !owned ? [] : mine
+        ? [h('button', { class: 'btn big primary', onclick: () => go(false) }, `Continue: round ${mine.round + 1}`), h('button', { class: 'btn big', onclick: () => go(true) }, 'Start over')]
+        : [h('button', { class: 'btn big primary', onclick: () => go(true) }, 'Start')];
+      return h('div', { class: `champ${owned ? '' : ' locked'}` },
+        h('h3', null, c.name),
+        h('p', null, `${c.rounds.length} races in the ${CLASSES[c.cls].name} against ${CHAMP_FIELD} bots. Finish in the top ${REWARD_PLACE} overall to earn the ${CLASSES[c.reward].name}.`),
+        rounds, status, h('div', { class: 'row' }, ...buttons));
+    });
+    this.screen(() => this.home(), h('div', { class: 'card setup champs' },
+      h('h2', null, 'Championship'),
+      h('p', { class: 'dim' }, 'Points for the top 10 in every race: 25, 18, 15, 12, 10, 8, 6, 4, 2, 1.'),
+      field('Difficulty', segmented(DIFFICULTY_ORDER.map(d => [d, DIFFICULTIES[d].label]), setup.difficulty, v => { setup.difficulty = v; about.textContent = DIFFICULTIES[v].about; }), about),
+      ...cards,
+      h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: () => this.home() }, 'Back'))));
   }
 
   /** settings, from the home screen or the pause menu */
