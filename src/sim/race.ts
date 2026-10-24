@@ -68,6 +68,9 @@ export class Race {
   time = 0;
   running = false;
   private launchPending = false;
+  /** called for each rival after its car and jets step, before the world steps (Fun Mode adds
+   *  its boosts and spin-outs here) */
+  onRivalStep: ((e: Entrant, dt: number) => void) | null = null;
   private line: Float64Array;
   private profile: Float64Array;
 
@@ -138,6 +141,7 @@ export class Race {
       e.braking = assisted.brake > 0.1 && e.car.speed > 0.5;
       e.car.step(assisted);
       e.jets.step(e.car, assisted, jet, dt);
+      this.onRivalStep?.(e, dt);
     }
     if (this.running) this.jetWash();
   }
@@ -206,6 +210,8 @@ export class Race {
       }
     }
 
+    this.slipstream();
+
     // order: finishers by time, then distance raced
     const sorted = [...this.entrants].sort((a, b) => {
       if (a.finished && b.finished) return a.finishTime! - b.finishTime!;
@@ -221,6 +227,30 @@ export class Race {
       if (!e.driver) continue;
       const gap = e.dist - this.player.dist;
       e.driver.paceMul = gap < -40 ? 1 + Math.min(push, (-gap - 40) / 3000) : gap > 160 ? 1 - Math.min(ease, (gap - 160) / 4000) : 1;
+    }
+  }
+
+  /** slipstream and dirty air: a car close behind another one and in line with it gets less drag
+   *  (most right behind, fading out 35 m back) and, within 20 m, less downforce */
+  private slipstream() {
+    for (const o of this.entrants) {
+      let draft = 0, dirty = 0;
+      if (this.running && this.time > 3) {
+        const q = o.car.body.translation();
+        for (const e of this.entrants) {
+          if (e === o || e.car.speed < 15) continue;
+          const p = e.car.body.translation();
+          const { fwd } = e.car.axes();
+          const dx = q.x - p.x, dz = q.z - p.z;
+          const back = -(dx * fwd.x + dz * fwd.z), side = Math.abs(dx * fwd.z - dz * fwd.x);
+          if (back < 4 || back > 35 || side > 2.2 || Math.abs(q.y - p.y) > 2) continue;
+          // strongest about two car lengths back, so the tow doesn't drag the car into the one in front
+          const inLine = 1 - side / 2.2, near = Math.min(1, (back - 4) / 5);
+          draft = Math.max(draft, near * (1 - (back - 4) / 31) * inLine);
+          if (back < 20) dirty = Math.max(dirty, (1 - (back - 4) / 16) * inLine);
+        }
+      }
+      o.car.draft = draft; o.car.dirtyAir = dirty;
     }
   }
 

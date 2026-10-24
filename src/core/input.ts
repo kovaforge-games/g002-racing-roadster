@@ -3,7 +3,7 @@
 import type { CarInputs } from '../sim/car';
 import type { TouchDrive } from '../ui/touch';
 
-export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop' | 'sideLeft' | 'sideRight';
+export type Action = 'camera' | 'reset' | 'pause' | 'paint' | 'help' | 'time' | 'mute' | 'assist1' | 'assist2' | 'assist3' | 'hop' | 'sideLeft' | 'sideRight' | 'item';
 
 const KEYS = {
   left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'],
@@ -15,10 +15,13 @@ const KEYS = {
 const PRESS: Record<string, Action> = {
   KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'paint', KeyH: 'help', KeyT: 'time', KeyM: 'mute',
   Digit1: 'assist1', Digit2: 'assist2', Digit3: 'assist3', Space: 'hop', Enter: 'hop', KeyQ: 'sideLeft', KeyE: 'sideRight',
+  // Fun Mode: use the item you're holding
+  KeyF: 'item',
 };
 /** standard-mapping gamepad buttons: A jumps (hold to hover), LB and RB fire the side thrusters,
- *  B boosts and X is the handbrake (held, read in poll) */
-const PAD_PRESS: Record<number, Action> = { 0: 'hop', 4: 'sideLeft', 5: 'sideRight', 3: 'camera', 8: 'reset', 9: 'pause' };
+ *  B boosts and X is the handbrake (held, read in poll); the right stick click or d-pad up uses
+ *  a Fun Mode item */
+const PAD_PRESS: Record<number, Action> = { 0: 'hop', 4: 'sideLeft', 5: 'sideRight', 3: 'camera', 8: 'reset', 9: 'pause', 11: 'item', 12: 'item' };
 
 export interface DriveInput extends CarInputs {
   lookBack: boolean;

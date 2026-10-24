@@ -45,3 +45,6 @@ export const settings: Settings = load('rd-settings', DEFAULT_SETTINGS);
 export const setup: RaceSetup = load('rd-setup', DEFAULT_SETUP);
 export function saveSettings() { save('rd-settings', settings); }
 export function saveSetup() { save('rd-setup', setup); }
+/** Fun Mode's switches: rings of fire, ramps and boost pads, item boxes */
+export const funSetup: { rings: boolean; ramps: boolean; items: boolean } = load('rd-fun', { rings: true, ramps: true, items: true });
+export function saveFunSetup() { save('rd-fun', funSetup); }
