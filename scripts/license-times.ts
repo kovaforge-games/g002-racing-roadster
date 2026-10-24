@@ -1,5 +1,6 @@
-// Times the reference driver over every license test, for the targets in src/sim/licenses.ts:
-// the bots' line and braking at full pace, no mistakes, from a standing start at gate A.
+// Times the reference driver (the bots' line and braking at full pace, no mistakes): over every
+// license test from a standing start at gate A, for the targets in src/sim/licenses.ts, and over
+// a flying lap in each class, for the bots' qualifying times in src/sim/weekend.ts.
 //   npx tsx scripts/license-times.ts            prints the reference times
 //   npx tsx scripts/license-times.ts --paces    also how much slower club and beginner pace bots are
 import { Car } from '../src/sim/car';
@@ -12,7 +13,7 @@ import { Jets } from '../src/sim/jets';
 import { Canisters } from '../src/sim/canisters';
 import { RivalDriver, RIVALS } from '../src/sim/rival';
 import { racingLine, speedProfile } from '../src/sim/racingLine';
-import { CLASSES, aeroOf, type ClassId } from '../src/sim/classes';
+import { CLASSES, CLASS_ORDER, aeroOf, type ClassId } from '../src/sim/classes';
 import { LICENSES, TestProgress, type License, type LicenseTest } from '../src/sim/licenses';
 
 await initPhysics();
@@ -24,7 +25,14 @@ export function referenceTime(lic: License, test: LicenseTest, pace = 1) {
   return drive(lic.cls, test, pace).time;
 }
 
-function drive(id: ClassId, test: LicenseTest, pace: number) {
+/** the reference driver's flying lap in a class: a run-up from 300 m before the line, then a lap */
+export function referenceLap(id: ClassId) {
+  const runup = 300, a = track.total - runup;
+  const { times } = drive(id, { name: 'lap', tip: '', a, b: a, ref: 0 }, 1, [runup, runup + track.total]);
+  return times.length === 2 ? times[1] - times[0] : null;
+}
+
+function drive(id: ClassId, test: LicenseTest, pace: number, marks: number[] = []) {
   const cls = CLASSES[id], spec = cls.spec;
   const profile = speedProfile(track, spec.grip, cls.brake, spec.topSpeed + 8, aeroOf(spec));
   const world = buildWorld(track, terrain);
@@ -37,7 +45,9 @@ function drive(id: ClassId, test: LicenseTest, pace: number) {
   const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
   for (let k = 0; k < 240; k++) { car.step(hold); world.step(); }
   let t = 0, hint = -1;
-  while (!prog.done && t < 200) {
+  const times: number[] = [];
+  const end = marks.length ? marks[marks.length - 1] : prog.length;
+  while (prog.dist < end && t < 200) {
     const pos = car.body.translation();
     const near = track.nearest(pos.x, pos.z, hint);
     hint = near.i;
@@ -46,12 +56,15 @@ function drive(id: ClassId, test: LicenseTest, pace: number) {
     car.step(applyDrivingHelp('medium', inp, car)); world.step();
     t += PHYSICS_DT;
     prog.update(near.s);
+    if (times.length < marks.length && prog.dist >= marks[times.length]) times.push(t);
   }
   world.free();
-  return { time: prog.done ? t : null };
+  return { time: prog.done ? t : null, times };
 }
 
 if (process.argv[1]?.endsWith('license-times.ts')) {
+  console.log('Flying laps');
+  for (const id of CLASS_ORDER) console.log(`  ${id.padEnd(20)} ${referenceLap(id)?.toFixed(2) ?? 'did not finish'}`);
   for (const lic of LICENSES) {
     console.log(`${lic.name} (${lic.cls})`);
     for (const test of lic.tests) {

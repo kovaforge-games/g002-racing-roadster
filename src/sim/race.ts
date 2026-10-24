@@ -22,7 +22,7 @@ export const gridSlot = (k: number) => [-10 - 5 * k, k % 2 ? 2.8 : -2.8] as cons
 /** the player's slot (0-based): towards the back, so there is a field to race through (fifth of six) */
 export const playerSlot = (opponents: number) => Math.min(opponents, Math.round(opponents * 0.7));
 
-export interface RaceOptions { opponents?: number; laps?: number; difficulty?: Difficulty; cls?: ClassId }
+export interface RaceOptions { opponents?: number; laps?: number; difficulty?: Difficulty; cls?: ClassId; /** the grid by name, pole first (a race weekend's qualifying); otherwise fastest bots first with the player in their slot */ grid?: string[] }
 
 export interface Entrant extends CarView {
   name: string;
@@ -90,8 +90,10 @@ export class Race {
       car.stability = 0.6;
       this.entrants.push(blank(def.name, car, new Jets(), new RivalDriver(def, track, this.line, this.profile), k + 1, k + 1));
     }
-    // fastest rivals at the front, the player in their slot
+    // fastest rivals at the front, the player in their slot (or the qualifying order)
     this.entrants.splice(playerSlot(rivals), 0, this.player);
+    const order = opts.grid;
+    if (order) this.entrants.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
     this.grid();
   }
 

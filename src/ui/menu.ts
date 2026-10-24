@@ -1,7 +1,7 @@
 // The menus: the home screen with every mode, the race setup screen, settings, and the pause
 // menu. The party screens live in partyUi.ts; their buttons sit on the home screen.
 import { h } from './dom';
-import { settings, setup, saveSettings, saveSetup, type SessionMode } from '../core/settings';
+import { settings, setup, saveSettings, saveSetup, type SessionMode, type RaceSetup } from '../core/settings';
 import { DIFFICULTIES, DIFFICULTY_ORDER } from '../sim/rival';
 import { MAX_OPPONENTS } from '../sim/race';
 import { CAMERA_ORDER } from '../render/cameras';
@@ -20,6 +20,10 @@ export interface MenuGame {
   startChampionship(run: ChampRun): void;
   /** drive test k of a license */
   startLicenseTest(id: string, k: number): void;
+  /** practice, qualifying and a race with this setup */
+  startWeekend(s: RaceSetup): void;
+  /** the pause menu's Finish session button (in a race weekend it moves on to the next session) */
+  readonly finishLabel: string;
   resume(): void;
   /** the on-screen pause button and Esc: pause or resume (in a party, open or close the menu) */
   togglePause(): void;
@@ -60,7 +64,6 @@ const MODES: { id: string; name: string; about: string }[] = [
 ];
 /** modes still being built: what the screen says about them */
 const SOON: Record<string, string> = {
-  weekend: 'A full weekend at one track: a practice session, qualifying to set your grid slot, then the race.',
   replays: 'Every race saved so you can watch it again from any camera.',
 };
 
@@ -127,6 +130,7 @@ export class Menu {
 
   private open(id: string) {
     if (id === 'quick') this.setupScreen('race');
+    else if (id === 'weekend') this.setupScreen('weekend');
     else if (id === 'timetrial') this.setupScreen('timetrial');
     else if (id === 'practice') this.setupScreen('practice');
     else if (id === 'championship') this.championships();
@@ -141,11 +145,12 @@ export class Menu {
   }
 
   /** before a session: time of day, and for races the difficulty, opponents and laps */
-  setupScreen(mode: SessionMode) {
-    const name = mode === 'race' ? 'Quick Race' : mode === 'timetrial' ? 'Time Trial' : 'Practice';
+  setupScreen(mode: SessionMode | 'weekend') {
+    const name = mode === 'race' ? 'Quick Race' : mode === 'weekend' ? 'Race Weekend' : mode === 'timetrial' ? 'Time Trial' : 'Practice';
+    const race = mode === 'race' || mode === 'weekend';
     const about = h('div', { class: 'field-about' }, DIFFICULTIES[setup.difficulty].about);
     if (!ownsCar(setup.cls)) setup.cls = 'rental';
-    const start = () => { saveSetup(); this.game.startSession(mode); };
+    const start = () => { saveSetup(); if (mode === 'weekend') this.game.startWeekend(setup); else this.game.startSession(mode); };
     const startBtn = h('button', { class: 'btn big primary start', autofocus: true, onclick: start }, mode === 'practice' ? 'Drive' : 'Start') as HTMLButtonElement;
     // the car: a locked class shows how to earn it, and can't be started
     const carAbout = h('div', { class: 'field-about class-about' });
@@ -162,8 +167,9 @@ export class Menu {
       h('div', { class: 'track-line' }, h('span', { class: 'dim' }, 'Track'), h('b', null, this.game.trackName)),
       carField,
       field('Time of day', segmented(TODS, setup.tod, v => { setup.tod = v; })),
-      mode === 'race' ? field('Difficulty', segmented(DIFFICULTY_ORDER.map(d => [d, DIFFICULTIES[d].label]), setup.difficulty, v => { setup.difficulty = v; about.textContent = DIFFICULTIES[v].about; }), about) : null,
-      mode === 'race' ? h('div', { class: 'field-pair' },
+      mode === 'weekend' ? h('p', { class: 'dim' }, 'Free practice to learn the track, qualifying (your best lap sets your grid slot), then the race.') : null,
+      race ? field('Difficulty', segmented(DIFFICULTY_ORDER.map(d => [d, DIFFICULTIES[d].label]), setup.difficulty, v => { setup.difficulty = v; about.textContent = DIFFICULTIES[v].about; }), about) : null,
+      race ? h('div', { class: 'field-pair' },
         field('Opponents', stepper(setup.opponents, 1, MAX_OPPONENTS, v => { setup.opponents = v; }, 'opponents')),
         field('Laps', stepper(setup.laps, 1, 10, v => { setup.laps = v; }, 'laps'))) : null,
       mode === 'timetrial' ? field('Laps', stepper(setup.laps, 1, 10, v => { setup.laps = v; }, 'laps')) : null,
@@ -286,7 +292,7 @@ export class Menu {
         h('div', { class: 'pause-list' },
           h('button', { class: 'btn big primary', autofocus: true, onclick: () => this.game.resume() }, 'Resume'),
           h('button', { class: 'btn big', onclick: () => this.game.restart() }, 'Restart'),
-          h('button', { class: 'btn big', onclick: () => this.game.finishSession() }, 'Finish session'),
+          h('button', { class: 'btn big', onclick: () => this.game.finishSession() }, this.game.finishLabel),
           h('button', { class: 'btn big', onclick: () => this.pauseSettings() }, 'Settings'),
           h('button', { class: 'btn big', onclick: () => this.game.quitToMenu() }, 'Quit to menu'))));
     }

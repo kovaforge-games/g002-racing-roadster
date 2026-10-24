@@ -24,6 +24,7 @@ import { CLASSES, type ClassId } from './sim/classes';
 import { ownsCar, giveCar, progress, saveProgress } from './core/progress';
 import { licenseById, medalFor, medalTime, passes, better, MEDALS, TestProgress } from './sim/licenses';
 import { Gates } from './render/gates';
+import { qualifyingOrder, QUALI_LAPS, type Weekend, type WeekendStage } from './sim/weekend';
 import { champById, scoreRound, standings, isOver, CHAMP_OPPONENTS, REWARD_PLACE, type ChampRun } from './sim/championship';
 import { ReflectionProbe } from './render/reflections';
 import { CameraRig } from './render/cameras';
@@ -116,6 +117,8 @@ export class Game implements PartyGame, MenuGame {
   private current: RaceSetup = { ...setup };
   /** the championship this race is a round of */
   champ: ChampRun | null = null;
+  /** the race weekend this session is part of */
+  weekend: Weekend | null = null;
   private standingsShown = false;
   /** the license test being driven: which one, how far along, and how long off the road */
   test: { id: string; k: number; prog: TestProgress; offT: number; over: boolean; time: number | null } | null = null;
@@ -262,8 +265,9 @@ export class Game implements PartyGame, MenuGame {
 
   /** the race puts everyone on the grid; the rivals sit there behind the title screen */
   private buildRace() {
-    const s = this.current;
-    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: s.opponents, laps: s.laps, difficulty: s.difficulty, cls: this.cls });
+    const s = this.current, w = this.weekend;
+    const grid = w?.stage === 'race' ? w.quali?.map(r => r.name) : undefined;
+    this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: s.opponents, laps: s.laps, difficulty: s.difficulty, cls: this.cls, grid });
     for (const e of this.race.rivals) {
       // copies of the player's model: building one from scratch takes seconds
       const model = cloneModel(this.model);
@@ -298,14 +302,15 @@ export class Game implements PartyGame, MenuGame {
   }
 
   /** from the setup screen: a race, time trial or practice with the race setup (a championship
-   *  round brings its own) */
-  startSession(mode: SessionMode, s: RaceSetup = setup, champ: ChampRun | null = null) {
+   *  round brings its own; so does each session of a race weekend) */
+  startSession(mode: SessionMode, s: RaceSetup = setup, extra: { champ?: ChampRun | null; weekend?: Weekend | null } = {}) {
     audio.unlock();
     if (this.partyUi.active) return;
     this.resume();
     this.session = mode;
     this.current = { ...s };
-    this.champ = champ;
+    this.champ = extra.champ ?? null;
+    this.weekend = extra.weekend ?? null;
     this.endTest();
     const tod = Math.max(0, TIMES.indexOf(s.tod));
     if (tod !== this.todIndex) { this.todIndex = tod; this.buildEnvironment(); }
@@ -313,7 +318,7 @@ export class Game implements PartyGame, MenuGame {
     if (ownsCar(s.cls)) this.setClass(s.cls);
     if (mode === 'race') {
       const r = this.race;
-      if (!r || r.laps !== s.laps || r.difficulty !== s.difficulty || r.rivals.length !== s.opponents || r.cls !== this.cls) { this.dropRace(); this.buildRace(); }
+      if (!r || r.laps !== s.laps || r.difficulty !== s.difficulty || r.rivals.length !== s.opponents || r.cls !== this.cls || this.weekend) { this.dropRace(); this.buildRace(); }
       this.restartRace();
     } else if (mode === 'timetrial') {
       this.trialLaps = s.laps;
@@ -430,7 +435,7 @@ export class Game implements PartyGame, MenuGame {
   restart() {
     if (this.party) { this.resume(); return; }
     if (this.test) { this.startLicenseTest(this.test.id, this.test.k); return; }
-    this.startSession(this.session, this.current, this.champ);
+    this.startSession(this.session, this.current, { champ: this.champ, weekend: this.weekend });
   }
 
   /** a license test: the license's car alone at gate A, a 3-second countdown, then drive to B */
@@ -439,7 +444,7 @@ export class Game implements PartyGame, MenuGame {
     if (this.partyUi.active) return;
     const lic = licenseById(id), test = lic.tests[k];
     this.resume();
-    this.champ = null;
+    this.champ = null; this.weekend = null;
     this.hud.title.classList.add('hidden');
     this.setClass(lic.cls);
     this.soloStart(test.a);
@@ -505,11 +510,52 @@ export class Game implements PartyGame, MenuGame {
     this.resultsShown = true;
   }
 
+  /** a race weekend: free practice first */
+  startWeekend(s: RaceSetup) {
+    this.weekendStage({ stage: 'practice', setup: { ...s }, quali: null }, 'practice');
+  }
+
+  private weekendStage(w: Weekend, stage: WeekendStage) {
+    w.stage = stage;
+    if (stage === 'practice') {
+      this.startSession('practice', w.setup, { weekend: w });
+      this.hud.message('Practice: learn the track. Pause and pick Go to qualifying when you are ready.', 4);
+    } else if (stage === 'qualifying') {
+      this.startSession('timetrial', { ...w.setup, laps: QUALI_LAPS }, { weekend: w });
+      this.hud.message(`Qualifying: your best of ${QUALI_LAPS} laps sets your grid slot`, 3);
+    } else {
+      this.startSession('race', w.setup, { weekend: w });
+    }
+  }
+
+  /** what the pause menu's Finish session button does here */
+  get finishLabel() {
+    return this.weekend?.stage === 'practice' ? 'Go to qualifying' : this.weekend?.stage === 'qualifying' ? 'End qualifying' : 'Finish session';
+  }
+
+  /** qualifying is over: the grid from everyone's best lap (the bots keep their times on a retry) */
+  private showQualifying() {
+    const w = this.weekend!, s = w.setup;
+    const best = this.lapTimes.length ? Math.min(...this.lapTimes) : null;
+    const bots = w.quali?.filter(r => r.name !== 'You');
+    const order = bots ? [{ name: 'You', time: best }, ...bots].sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity))
+      : qualifyingOrder(best, s.opponents, this.cls, s.difficulty);
+    w.quali = order;
+    const pole = order[0].time ?? 0, me = order.findIndex(r => r.name === 'You') + 1;
+    const rows = order.map((r, k) => ({ pos: k + 1, name: r.name, you: r.name === 'You',
+      time: r.time === null ? 'no time' : k === 0 ? formatTime(r.time) : `+${(r.time - pole).toFixed(3)}`, best: '' }));
+    this.hud.showResults(me === 1 ? 'POLE POSITION!' : `P${me} ON THE GRID`, 'QUALIFYING', rows, [
+      { label: 'Race', primary: true, run: () => this.weekendStage(w, 'race') },
+      { label: 'Retry qualifying', run: () => this.restart() },
+    ], best === null ? 'No lap time, so you start from the back.' : `Your best lap: ${formatTime(best)}.`);
+    this.resultsShown = true;
+  }
+
   /** the next round of a championship */
   startChampionship(run: ChampRun) {
     const c = champById(run.id), r = c.rounds[run.round];
     progress.run = run; saveProgress();
-    this.startSession('race', { tod: r.tod, laps: r.laps, difficulty: run.difficulty, opponents: CHAMP_OPPONENTS, cls: c.cls }, run);
+    this.startSession('race', { tod: r.tod, laps: r.laps, difficulty: run.difficulty, opponents: CHAMP_OPPONENTS, cls: c.cls }, { champ: run });
     this.hud.message(`${c.name} · Round ${run.round + 1} of ${c.rounds.length}`, 3);
   }
 
@@ -556,7 +602,7 @@ export class Game implements PartyGame, MenuGame {
     } else {
       this.phase = 'finished';
       this.pilot = new Autopilot(this.track);
-      this.showTrialResults(true);
+      if (this.weekend?.stage === 'qualifying') this.showQualifying(); else this.showTrialResults(true);
     }
   }
 
@@ -564,6 +610,7 @@ export class Game implements PartyGame, MenuGame {
     if (this.party) { this.resume(); return; }
     // a championship in progress stays saved: Continue picks it up from the menu
     this.champ = null;
+    this.weekend = null;
     this.endTest();
     this.toTitle();
     this.menu.home();
@@ -969,6 +1016,8 @@ export class Game implements PartyGame, MenuGame {
   /** the buttons under the results */
   private afterActions() {
     if (this.champ && this.session === 'race') return [{ label: 'Standings', primary: true, run: () => this.champRoundDone() }, { label: 'Retry round', run: () => this.restart() }];
+    const w = this.weekend;
+    if (w?.stage === 'practice') return [{ label: 'Go to qualifying', primary: true, run: () => this.weekendStage(w, 'qualifying') }, { label: 'More practice', run: () => this.restart() }];
     const again = this.session === 'race' ? 'Race again' : this.session === 'timetrial' ? 'Try again' : 'Drive again';
     return [{ label: again, primary: true, run: () => this.restart() }, { label: 'Menu', run: () => this.quitToMenu() }];
   }
@@ -977,7 +1026,7 @@ export class Game implements PartyGame, MenuGame {
   private finishTrial() {
     this.phase = 'finished';
     this.pilot = new Autopilot(this.track);
-    this.showTrialResults(false);
+    if (this.weekend?.stage === 'qualifying') this.showQualifying(); else this.showTrialResults(false);
   }
 
   /** the laps of a time trial or practice; `early` when the session was finished from the pause menu */
@@ -996,7 +1045,7 @@ export class Game implements PartyGame, MenuGame {
       title = laps.length ? `Best ${formatTime(best)}` : 'No laps';
       note = `${laps.length} lap${laps.length === 1 ? '' : 's'} completed`;
     }
-    this.hud.showResults(title, this.session === 'timetrial' ? 'TIME TRIAL' : 'PRACTICE', rows, this.afterActions(), note);
+    this.hud.showResults(title, this.session === 'timetrial' ? 'TIME TRIAL' : this.weekend ? 'WEEKEND PRACTICE' : 'PRACTICE', rows, this.afterActions(), note);
     this.resultsShown = true;
   }
 

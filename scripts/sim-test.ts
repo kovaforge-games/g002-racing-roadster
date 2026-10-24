@@ -16,7 +16,8 @@ import { Race, RACE_LAPS, MAX_OPPONENTS, type RaceOptions } from '../src/sim/rac
 import { CLASSES, CLASS_ORDER, type ClassId } from '../src/sim/classes';
 import { newRun, scoreRound, standings, isOver } from '../src/sim/championship';
 import { LICENSES, medalFor, medalTime } from '../src/sim/licenses';
-import { referenceTime } from './license-times';
+import { referenceTime, referenceLap } from './license-times';
+import { LAP_REF, qualifyingOrder } from '../src/sim/weekend';
 
 await initPhysics();
 // the bots roll dice (mistakes, passing, boosting): seed them so every run of this test is the same
@@ -300,6 +301,25 @@ function runRace(opts: RaceOptions) {
     check(Math.abs(off) < 0.03, `${lic.name} / ${test.name}: reference time within 3% of the stored one (rerun scripts/license-times.ts after a handling change)`);
     check(t !== null && medalFor(test, t) === 'gold', `${lic.name} / ${test.name}: the reference driver gets gold`);
   }
+}
+
+// ---- race weekend: the bots' qualifying times, and the race grid from qualifying
+{
+  console.log('race weekend:');
+  for (const id of CLASS_ORDER) {
+    const t = referenceLap(id);
+    console.log(`  ${id.padEnd(8)} reference flying lap ${t?.toFixed(2) ?? 'dnf'} s (stored ${LAP_REF[id].toFixed(2)})`);
+    check(t !== null && Math.abs(t / LAP_REF[id] - 1) < 0.03, `${id}: flying lap within 3% of the stored one (rerun scripts/license-times.ts after a handling change)`);
+  }
+  const q = qualifyingOrder(null, 5, '0x1.5', 'club');
+  check(q.length === 6 && q[5].name === 'You' && q.slice(0, 5).every((r, k) => k === 0 || r.time! >= q[k - 1].time!), 'qualifying: quickest first, no time at the back');
+  const pole = qualifyingOrder(1, 5, '0x1.5', 'pro');
+  check(pole[0].name === 'You', 'qualifying: a quicker lap than every bot takes pole');
+  const world = buildWorld(track, terrain);
+  const car = new Car(world, 0, 0, 0, 0);
+  const race = new Race(track, world, new Canisters(track), car, new Jets(), { opponents: 5, grid: q.map(r => r.name) });
+  check(race.entrants.map(e => e.name).join() === q.map(r => r.name).join(), 'the race grid follows the qualifying order');
+  world.free();
 }
 
 process.exit(failed ? 1 : 0);
