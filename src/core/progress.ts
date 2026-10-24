@@ -22,8 +22,8 @@ const DEFAULT: Progress = { cars: ['rental'], medals: {}, licenses: [], champs: 
 function load(): Progress {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    return v && typeof v === 'object' ? { ...DEFAULT, ...v } : structuredClone(DEFAULT);
-  } catch { return structuredClone(DEFAULT); }
+    return v && typeof v === 'object' ? { ...DEFAULT, ...v } : JSON.parse(JSON.stringify(DEFAULT));
+  } catch { return JSON.parse(JSON.stringify(DEFAULT)); }
 }
 
 export const progress: Progress = load();

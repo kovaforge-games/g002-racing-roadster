@@ -23,7 +23,10 @@ export class NameTag {
     const w = c.measureText(label).width + 120;
     const x0 = (512 - w) / 2;
     c.fillStyle = 'rgba(8, 12, 18, 0.62)';
-    c.beginPath(); c.roundRect(x0, 14, w, 68, 34); c.fill();
+    c.beginPath();
+    // roundRect is missing before Safari 16
+    if (c.roundRect) c.roundRect(x0, 14, w, 68, 34); else c.rect(x0, 14, w, 68);
+    c.fill();
     c.fillStyle = this.color; c.strokeStyle = 'rgba(255,255,255,0.7)'; c.lineWidth = 3;
     c.beginPath(); c.arc(x0 + 40, 48, 22, 0, Math.PI * 2); c.fill(); c.stroke();
     c.font = '800 28px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -35,6 +38,9 @@ export class NameTag {
     c.fillText(label, x0 + 76, 50);
     this.tex.needsUpdate = true;
   }
+
+  /** the sprite's geometry is shared by every sprite, so only the label and its material go */
+  dispose() { this.tex.dispose(); this.sprite.material.dispose(); }
 
   /** follow the car; distance to the camera fades the tag in from 7 m and out by 110 m */
   update(pos: number, x: number, y: number, z: number, camDist: number) {

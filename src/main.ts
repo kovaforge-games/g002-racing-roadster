@@ -9,6 +9,7 @@ import type { Quality } from './render/graphics';
 import type { TimeOfDay } from './render/environment';
 import { CLASS_ORDER, type ClassId } from './sim/classes';
 import { showBootInfo } from './ui/news';
+import { settings } from './core/settings';
 
 catchErrors();
 
@@ -45,7 +46,8 @@ async function boot() {
     return;
   }
   const game = new Game(document.getElementById('app')!, {
-    quality: q && ['low', 'medium', 'high', 'ultra'].includes(q) ? q as Quality : undefined,
+    // ?quality= first, then the Graphics setting (it did nothing before: Auto was always used)
+    quality: q && ['low', 'medium', 'high', 'ultra'].includes(q) ? q as Quality : settings.quality !== 'auto' ? settings.quality : undefined,
     tod: tod && ['morning', 'noon', 'sunset', 'night'].includes(tod) ? tod as TimeOfDay : undefined,
     safe,
     autodrive: params.has('autodrive'),
