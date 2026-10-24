@@ -9,6 +9,8 @@ export const NEWS: { date: string; items: string[] }[] = [
       'Steer in the air: while you jump or hover, steering turns the car and the way it is flying, even with an empty tank.',
       'Faster loading, with tips and this list while the game starts.',
       'Party QR codes work again: scan one to join the party.',
+      'Crash damage, and a flying tow Roadster that carries a crashed car back to the track.',
+      'A sharper picture, no more freezing when the time of day changes, and the Graphics setting works.',
       'Road Thruster controls: Space jumps, hold it to hover, and Q / E fire the side thrusters.',
       'Championships, licenses and race weekends, with the 0x1.5, 0x2.5 and 0x3.5 cars to earn.',
     ],
