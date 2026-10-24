@@ -7,5 +7,6 @@ export default defineConfig({
   base: process.env.BASE ?? '/',
   server: { host: true, proxy },
   preview: { host: true, proxy },
-  build: { target: 'es2022', chunkSizeWarningLimit: 6000 },
+  // Safari 15 (older iPads): three.js uses class static blocks, which Safari only parses from 16.4
+  build: { target: ['es2020', 'safari15', 'chrome100', 'firefox100'], chunkSizeWarningLimit: 6000 },
 });

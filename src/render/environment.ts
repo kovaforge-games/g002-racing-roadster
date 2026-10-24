@@ -164,6 +164,11 @@ export class Environment {
   }
 
   dispose() {
+    // take everything this environment added out of the scene: lights left behind pile up on every
+    // time-of-day change, recompiling every material and adding a shadow pass each time
+    this.scene.remove(this.sun, this.sun.target, this.hemi);
+    for (const o of [this.sky, this.stars, this.clouds, this.backdrop]) if (o) this.scene.remove(o);
+    if (this.scene.background instanceof THREE.Texture) this.scene.background.dispose();
     this.envTarget.dispose();
     this.scene.environment = null;
     this.sun.dispose();

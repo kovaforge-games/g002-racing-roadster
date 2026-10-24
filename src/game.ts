@@ -32,6 +32,7 @@ import { SkidMarks } from './render/skids';
 import { Vapour, JetFx } from './render/vapour';
 import { CanisterScene } from './render/canisterScene';
 import { cloneModel } from './render/cloneModel';
+import { disposeResources } from './render/resources';
 import { NameTag } from './render/nameTag';
 import { RemoteCars, paintCss } from './render/remoteCars';
 import { input, type DriveInput } from './core/input';
@@ -42,6 +43,7 @@ import { Menu, type MenuGame } from './ui/menu';
 import { TouchControls, touchDevice } from './ui/touch';
 import { settings, setup, saveSettings, type SessionMode, type RaceSetup } from './core/settings';
 import type { PartyClient } from './net/party';
+import { showErrorBanner } from './core/health';
 
 const TIMES: TimeOfDay[] = ['noon', 'sunset', 'night', 'morning'];
 const TRACK_NAME = 'Roadster Circuit';
@@ -287,9 +289,27 @@ export class Game implements PartyGame, MenuGame {
   private dropRace() {
     if (!this.race) return;
     this.race.dispose();
-    for (const r of this.rivals) { this.scene.remove(r.model.root, r.skids.mesh, r.tag.sprite); }
+    for (const r of this.rivals) { this.scene.remove(r.model.root, r.skids.mesh, r.tag.sprite); this.disposeRival(r); }
     this.rivals = [];
     this.race = null;
+  }
+
+  /** free the GPU memory a rival's car held: its own materials, effects, skid marks and name tag
+   *  (the geometry and textures are shared with the player's models, so those stay) */
+  private disposeRival(r: RivalView) {
+    const shared = new Set<unknown>();
+    for (const v of this.views.values()) v.model.root.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) shared.add(m.geometry);
+      for (const mat of m.material ? [m.material].flat() : []) shared.add(mat);
+    });
+    r.model.root.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (m.geometry && !shared.has(m.geometry)) m.geometry.dispose();
+      for (const mat of m.material ? [m.material].flat() : []) if (!shared.has(mat)) mat.dispose();
+    });
+    disposeResources(r.skids.mesh);
+    r.tag.dispose();
   }
 
   private buildEnvironment() {
@@ -1054,7 +1074,16 @@ export class Game implements PartyGame, MenuGame {
   }
 
   run() {
-    const loop = (t: number) => { this.frame(t); requestAnimationFrame(loop); };
+    // the next frame is booked first, so an error in one frame can never stop the game for good
+    let errors = 0;
+    const loop = (t: number) => {
+      requestAnimationFrame(loop);
+      try { this.frame(t); }
+      catch (e) {
+        if (errors++ % 300 === 0) console.error(e);
+        showErrorBanner(String((e as Error)?.message ?? e));
+      }
+    };
     requestAnimationFrame(loop);
   }
 }
