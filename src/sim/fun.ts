@@ -45,6 +45,8 @@ export interface Oil { x: number; y: number; z: number; owner: FunCar; age: numb
 /** half thickness of the band of flames round a hoop (m) */
 export const RING_FLAME = 0.42;
 const RAMP_LEN = 22;
+/** the most upward acceleration (m/s²) a ramp asks of a car at its design speed */
+const RAMP_MAX_ACCEL = 19;
 const PAD_LEN = 10;
 const BOX_RESPAWN = 4, PICK_R = 2.3, OIL_R = 1.9, OIL_LIFE = 25;
 const G = 9.81;
@@ -55,12 +57,13 @@ const G = 9.81;
  *  first one gets a ring of fire at the top of its jump */
 const RAMPS = [
   { s0: 140, d0: -6.5, d1: 6.5, vFrac: 0.84, air: 1.6, ring: true },
-  { s0: 380, d0: -6.5, d1: -0.6, vFrac: 0.96, air: 0.8, ring: false },
+  { s0: 290, d0: -6.5, d1: -0.6, vFrac: 0.96, air: 0.8, ring: false },
   { s0: 2222, d0: -6.5, d1: -0.6, vFrac: 0.78, air: 0.75, ring: false },
 ];
 /** rings of fire on the road (drive through) and over it (jump through): arc length and offset */
-const ROAD_RINGS: [number, number][] = [[800, 0.8], [1080, 2.2], [1440, 0], [1700, -1.2], [2010, 0.6], [2390, 0]];
-const HOP_RINGS: [number, number][] = [[445, 3.1], [1555, -1.6], [1935, 1.8]];
+const ROAD_RINGS: [number, number][] = [[1440, 0], [1555, -1.2], [1700, -1.2], [1935, 1], [2010, 0.6], [2390, 0]];
+/** the raised ones sit where the road is nearly straight, so a jump doesn't land in a corner */
+const HOP_RINGS: [number, number][] = [[425, 3.1], [780, 1.8], [1100, -1]];
 /** item box rows: arc length; each row has four boxes across the road */
 const BOX_ROWS = [620, 1250, 1790, 2120];
 
@@ -78,12 +81,14 @@ export function funLayout(track: Track, spec: CarSpec, opts: FunOptions, racingL
     const v = spec.topSpeed * def.vFrac;
     // a jump of `air` seconds at v: flight distance D = v·air, and D = v² sin 2θ / g
     const theta = 0.5 * Math.asin(Math.min(0.6, G * def.air / v));
-    const h = (RAMP_LEN / 2) * Math.tan(theta);
-    ramps.push({ s0: def.s0, len: RAMP_LEN, h, d0: def.d0, d1: def.d1 });
+    // long enough that the curve up the ramp (v² tanθ / len) doesn't bottom out the suspension
+    const len = Math.max(RAMP_LEN, (v * v * Math.tan(theta)) / RAMP_MAX_ACCEL);
+    const h = (len / 2) * Math.tan(theta);
+    ramps.push({ s0: def.s0, len, h, d0: def.d0, d1: def.d1 });
     if (def.ring && opts.rings) {
       // the top of the jump: half the flight distance on, D·tanθ / 4 above the lip
       const D = v * def.air, apex = (D * Math.tan(theta)) / 4;
-      rings.push(ring('ramp', def.s0 + RAMP_LEN + D / 2, (def.d0 + def.d1) / 2, 3.5, h + apex + spec.comHeight + 0.3));
+      rings.push(ring('ramp', def.s0 + len + D / 2, (def.d0 + def.d1) / 2, 3.5, h + apex + spec.comHeight + 0.3));
     }
   }
   if (opts.rings) {
@@ -439,6 +444,12 @@ export class Fun {
     return true;
   }
 
+  /** no real bend in the next `dist` metres */
+  private straightAhead(s: number, dist: number) {
+    for (let d = 0; d < dist; d += 10) if (Math.abs(this.track.curv[this.track.indexAt(s + d)]) > 1 / 200) return false;
+    return true;
+  }
+
   /** bots: use items when they suit, and decide which rings and boxes to go for */
   private bots() {
     const tr = this.track;
@@ -450,14 +461,9 @@ export class Fun {
         if (!behind && this.t < fc.useAt + 8) continue;
       } else if (fc.item === 'mega') {
         if (!this.layout.rings.some(r => r.kind === 'hop' && ((r.s - fc.view.s + tr.total) % tr.total) < fc.car.speed * 0.5)) {
-          if (this.t < fc.useAt + 12) continue;
+          if (this.t < fc.useAt + 12 || !this.straightAhead(fc.view.s, fc.car.speed * 2) || fc.car.airborne) continue;
         }
-      } else {
-        // turbos on a straight
-        let bend = 0;
-        for (let d = 0; d < 60; d += 10) bend = Math.max(bend, Math.abs(tr.curv[tr.indexAt(fc.view.s + d)]));
-        if (bend > 1 / 160 || fc.car.airborne) continue;
-      }
+      } else if (!this.straightAhead(fc.view.s, fc.car.speed * 2.5) || fc.car.airborne) continue; // turbos on a straight
       this.useItem(fc);
       fc.useAt = this.t + 1.6;
     }
@@ -475,7 +481,7 @@ export class Fun {
       if (!fc.goFor.has(r)) fc.goFor.set(r, Math.random() < 0.45 + aggression * 0.5);
       if (!fc.goFor.get(r) || ds >= bestDs) continue;
       // a jump peaks about 0.6 s after take-off
-      const hop = r.kind === 'hop' && ds < Math.max(8, speed * 0.55) && ds > speed * 0.3;
+      const hop = r.kind === 'hop' && ds < Math.max(8, speed * 0.55) && ds > speed * 0.3 && this.straightAhead(s, speed * 1.4);
       best = { s: r.s, d: r.d, hop }; bestDs = ds;
     }
     if (!best && !fc.item) {

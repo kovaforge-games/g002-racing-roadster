@@ -1,4 +1,4 @@
-// Fun Mode on screen: the kicker ramps (a steel deck with chevrons, hazard-striped sides and a
+// Fun Mode on screen: the red kicker ramps (chevrons on the deck, neon pink sides and a
 // glowing lip), boost pads with running arrows, spinning rainbow item boxes, oil slicks, and the
 // rings of fire: a steel burner hoop wrapped in thousands of flame particles animated on the GPU,
 // with smoke rising off the top, a hot glow on the road and real light thrown on the cars by the
@@ -77,6 +77,14 @@ void main() {
   gl_FragColor = vec4(uColor, a);
 }`;
 
+/** the flames: premultiplied "over" blending, so they glow like additive light but still show
+ *  up against a bright sky (pure additive flames vanish into a sunset) */
+function fireMaterial() {
+  return new THREE.ShaderMaterial({ vertexShader: FIRE_VERT, fragmentShader: FIRE_FRAG, transparent: true, depthWrite: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+    uniforms: { uTime: { value: 0 }, uScale: { value: 400 }, uBright: { value: 2.6 } } });
+}
+
 /** a point on a ring's hoop at angle a (0 = right of the road, π/2 = the top) */
 function hoopPoint(r: Ring, a: number, rad = r.r) {
   const c = Math.cos(a) * rad, s = Math.sin(a) * rad;
@@ -134,8 +142,7 @@ export class FunScene {
 
   constructor(private track: Track, private fun: Fun, quality: Quality) {
     const fine = quality === 'high' || quality === 'ultra';
-    this.fire = new THREE.ShaderMaterial({ vertexShader: FIRE_VERT, fragmentShader: FIRE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uScale: { value: 400 }, uBright: { value: 2.6 } } });
+    this.fire = fireMaterial();
     this.smoke = new THREE.ShaderMaterial({ vertexShader: SMOKE_VERT, fragmentShader: SMOKE_FRAG, transparent: true, depthWrite: false,
       uniforms: { uTime: { value: 0 }, uScale: { value: 400 }, uColor: { value: new THREE.Color(0x2b2724) } } });
     this.glowMat = new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
@@ -182,16 +189,16 @@ export class FunScene {
   }
 
   private buildRamps() {
-    // g001's red ramps: a red deck with white chevrons, and neon sides
+    // g001's red ramps: a red deck with darker red chevrons, and neon sides
     const deck = canvasTex(256, 256, c => {
-      c.fillStyle = '#d40a0a'; c.fillRect(0, 0, 256, 256);
-      c.fillStyle = '#ffffff';
+      c.fillStyle = '#e00a0a'; c.fillRect(0, 0, 256, 256);
+      c.fillStyle = '#8a0000';
       for (let k = -1; k < 3; k++) {
-        c.beginPath(); c.moveTo(0, 128 + k * 128); c.lineTo(128, k * 128); c.lineTo(256, 128 + k * 128); c.lineTo(256, 180 + k * 128); c.lineTo(128, 52 + k * 128); c.lineTo(0, 180 + k * 128); c.fill();
+        c.beginPath(); c.moveTo(0, 128 + k * 128); c.lineTo(128, k * 128); c.lineTo(256, 128 + k * 128); c.lineTo(256, 156 + k * 128); c.lineTo(128, 28 + k * 128); c.lineTo(0, 156 + k * 128); c.fill();
       }
     });
-    deck.wrapS = deck.wrapT = THREE.RepeatWrapping; deck.repeat.set(1 / 3.25, 1 / 3);
-    const top = new THREE.MeshStandardMaterial({ map: deck, roughness: 0.5, metalness: 0.2 });
+    deck.wrapS = deck.wrapT = THREE.RepeatWrapping; deck.repeat.set(1 / 6.5, 1 / 4.5);
+    const top = new THREE.MeshStandardMaterial({ map: deck, roughness: 0.55, metalness: 0.1, emissive: 0x400000 });
     const side = new THREE.MeshStandardMaterial({ color: 0xff2d95, emissive: 0xff2d95, emissiveIntensity: 1.4, roughness: 0.4 });
     this.disposables.push(deck, top, side);
     for (const r of this.fun.layout.ramps) {
@@ -406,8 +413,7 @@ export class FireRing {
 
   constructor(readonly radius = 3.5, quality: Quality = 'high') {
     const density = quality === 'high' || quality === 'ultra' ? 1 : 0.5;
-    this.fire = new THREE.ShaderMaterial({ vertexShader: FIRE_VERT, fragmentShader: FIRE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uScale: { value: 400 }, uBright: { value: 2.6 } } });
+    this.fire = fireMaterial();
     this.smoke = new THREE.ShaderMaterial({ vertexShader: SMOKE_VERT, fragmentShader: SMOKE_FRAG, transparent: true, depthWrite: false,
       uniforms: { uTime: { value: 0 }, uScale: { value: 400 }, uColor: { value: new THREE.Color(0x3a3532) } } });
     this.glow = new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
