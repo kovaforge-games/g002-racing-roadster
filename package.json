@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "worker-test": "node --import tsx --import ./worker/cf-stub.mjs --test worker/invite.test.ts",
+    "qr-join-test": "node scripts/qr-join-test.mjs",
     "smoke-gate-test": "node --test scripts/smoke-gate.test.mjs",
     "typecheck": "tsc --noEmit && tsc -p worker",
     "party-server": "tsx server/server.ts",
@@ -22,7 +23,8 @@
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
     "qrcode": "^1.5.4",
-    "three": "^0.186.1"
+    "three": "^0.186.1",
+    "three-mesh-bvh": "^0.9.16"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261023.1",
