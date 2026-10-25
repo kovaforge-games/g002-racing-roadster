@@ -8,13 +8,21 @@
 // for that one party that runs out after PASS_TTL. A friend who scans it gets a guest cookie that
 // lasts as long as the pass. A guest's own party QR codes carry passes too, but never past their
 // own cookie, so everyone a pass brings in is out again when that first pass runs out.
+//
+// Hub invites: the admin makes invites on kovaforge.org/games, each with its own code and two links,
+// kovaforge.org/games/<game>/<code> and <worker>.workers.dev/<code>, that can be revoked one by one.
+// Opening one asks the hub (HUB, a service binding to kovaforge-home) whether that link is live, and
+// sets a cookie carrying the code, signed with INVITE_CODE. The cookie is checked with the hub again
+// at most once every HUB_RECHECK_MS, so a revoked link shuts out people who already opened it.
 
-export interface InviteEnv { INVITE_CODE?: string }
+export interface InviteEnv { INVITE_CODE?: string; HUB?: Fetcher }
 
 const ROBOTS = 'User-agent: *\nDisallow: /\n';
 const NOINDEX = 'noindex, nofollow, noarchive';
 const MAX_AGE = 30 * 24 * 3600;
 export const PASS_TTL = 12 * 3600;
+const HUB_CODE = /^[A-Za-z0-9_-]{22}$/;
+export const HUB_RECHECK_MS = 60_000;
 
 const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 /** 16 bytes as URL-safe base64: short enough to keep the QR code easy to scan */
@@ -28,6 +36,29 @@ async function hmac(code: string, msg: string) {
 /** the cookie value: an HMAC of the game name keyed by the invite code, never the code itself */
 async function token(code: string, game: string) {
   return hex(await hmac(code, `kovaforge-invite-v1:${game}`));
+}
+
+/** the cookie for a hub invite: "<code>.<signature>", for this game and link only */
+async function hubToken(code: string, game: string, link: string, invite: string) {
+  return `${invite}.${hex(await hmac(code, `kovaforge-hub-invite-v1:${game}:${link}:${invite}`))}`;
+}
+
+// links the hub said were live, and when it said so (per isolate)
+const hubLive = new Map<string, number>();
+
+/** asks the hub whether this invite's link is still live; anything but a 200 is a no. Opening a link
+ *  always asks (`fresh`), so a revoked link stops letting new people in at once. */
+async function hubSays(hub: Fetcher | undefined, game: string, link: string, invite: string, fresh = false) {
+  const key = `${game}:${link}:${invite}`;
+  const at = hubLive.get(key);
+  if (!fresh && at !== undefined && Date.now() - at < HUB_RECHECK_MS) return true;
+  let ok = false;
+  try {
+    ok = !!hub && (await hub.fetch(`https://kovaforge.org/home-api/games/${game}/invites/${invite}?link=${link}`)).status === 200;
+  } catch { ok = false; }
+  if (hubLive.size > 1000) hubLive.clear();
+  if (ok) hubLive.set(key, Date.now()); else hubLive.delete(key);
+  return ok;
 }
 
 /** a pass for one party until `exp` (unix seconds): "<exp in base 36>.<signature>" */
@@ -86,7 +117,11 @@ export function inviteGate<E extends InviteEnv, C>(game: string, base: string, i
     const secret = env.INVITE_CODE ?? '';
     if (!secret) return noindex(notFound()); // fail closed
     const expected = await token(secret, game);
-    const invited = await same(cookie(req, name), expected);
+    const link = url.hostname.endsWith('.workers.dev') ? 'workers' : 'kovaforge';
+    const held = cookie(req, name);
+    const hubInvite = /^([A-Za-z0-9_-]{22})\.[0-9a-f]{64}$/.exec(held)?.[1];
+    const invited = (await same(held, expected))
+      || (!!hubInvite && (await same(held, await hubToken(secret, game, link, hubInvite))) && (await hubSays(env.HUB, game, link, hubInvite)));
     const guestLeft = invited ? 0 : await secondsLeft(cookie(req, guestName), exp => guestToken(secret, game, exp));
     // workers.dev serves the game at its root; kovaforge.org only under the game's path
     // no trailing slash: RFC 6265 path-match sends it to /games/gNNN, /games/gNNN/... and the ws,
@@ -97,6 +132,14 @@ export function inviteGate<E extends InviteEnv, C>(game: string, base: string, i
       if (setCookie) headers['Set-Cookie'] = `${setCookie}; Path=${path}; HttpOnly; Secure; SameSite=Lax`;
       return new Response(null, { status: 302, headers });
     };
+
+    // a hub invite link: <code> right after the game's base (workers.dev: right after the root)
+    const rest = link === 'workers' ? url.pathname.slice(1) : url.pathname.startsWith(base) ? url.pathname.slice(base.length) : '';
+    if (HUB_CODE.test(rest)) {
+      if (!(await hubSays(env.HUB, game, link, rest, true))) return noindex(notFound());
+      url.pathname = link === 'workers' ? '/' : base;
+      return redirect(`${name}=${await hubToken(secret, game, link, rest)}; Max-Age=${MAX_AGE}`);
+    }
 
     const offered = url.searchParams.get('invite');
     if (offered !== null) {

@@ -22,6 +22,7 @@ Golden rule for every game in the kovaforge-games org. Set by Mike on 24 Oct 202
 ## Configuration
 
 - `workers_dev` is `true` in `wrangler.jsonc` per Mike: friends play on the workers.dev address, which sits behind the invite gate (`INVITE_CODE` secret, 404 without the invite). This is a free plan feature and adds no cost. Keep `preview_urls` set to `false`.
+- The `HUB` service binding (to the `kovaforge-home` Worker, which checks /games invite links) is a free plan feature. The gate asks it at most once a minute per open invite and caches the answer.
 
 ## Secrets
 
