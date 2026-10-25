@@ -17,3 +17,8 @@ Full detail: [FREE-PLAN.md](FREE-PLAN.md).
 
 - Read FREE-PLAN.md before adding any Cloudflare binding, product or dependency.
 - If you are unsure whether something is free, treat it as paid and ask Mike.
+
+## Changelog and version
+
+- Every update gets a new entry at the top of `src/data/updates.json`: a version, the date, a short title and what changed, in plain words for players. The newest entry is the version the game shows on the loading screen, the home screen banner and in Settings.
+- Bump `version` in `package.json` to match.

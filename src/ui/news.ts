@@ -1,31 +1,22 @@
-// What's new and how-to-play tips, for the loading screen and the home screen's What's new card.
-// For each update, add a day at the top of NEWS; the loading screen shows the latest days.
+// The changelog and how-to-play tips, for the loading screen and the home screen's What's new card.
+// For each update, add a version at the top of src/data/updates.json (and bump package.json to match);
+// the newest entry is the version the game shows.
 import { h } from './dom';
+import updatesJson from '../data/updates.json';
 
-export const NEWS: { date: string; items: string[] }[] = [
-  {
-    date: '2026-10-24',
-    items: [
-      'Steer in the air: while you jump or hover, steering turns the car and the way it is flying, even with an empty tank.',
-      'Faster loading, with tips and this list while the game starts.',
-      'Fun Mode: red ramps with neon edges, rings of fire and item boxes.',
-      'The Garage: paint, rim colours, liveries, wings and tyres for your car.',
-      'Party QR codes work again: scan one to join the party.',
-      'Crash damage, and a flying tow Roadster that carries a crashed car back to the track.',
-      'A sharper picture, no more freezing when the time of day changes, and the Graphics setting works.',
-      'Road Thruster controls: Space jumps, hold it to hover, and Q / E fire the side thrusters.',
-      'Championships, licenses and race weekends, with the 0x1.5, 0x2.5 and 0x3.5 cars to earn.',
-    ],
-  },
-  {
-    date: '2026-10-23',
-    items: [
-      'Rocket boost and air canisters on the track.',
-      'Eleven rivals to race, with five difficulties.',
-      'Parties: race your friends with a join code.',
-    ],
-  },
-];
+export interface Update { version: string; date: string; title: string; items: string[] }
+export const UPDATES = updatesJson as Update[];
+/** the version being played: the newest entry in the changelog */
+export const VERSION = UPDATES[0].version;
+
+const SEEN_KEY = 'roadster-seen-update';
+/** true until the player opens the changelog for this version */
+export function updateIsNew() {
+  try { return localStorage.getItem(SEEN_KEY) !== VERSION; } catch { return false; }
+}
+export function markUpdateSeen() {
+  try { localStorage.setItem(SEEN_KEY, VERSION); } catch { /* private mode */ }
+}
 
 const KEY_TIPS = [
   'W or ↑ is gas, S or ↓ brakes, and A / D or ← / → steer.',
@@ -59,11 +50,11 @@ export function tips() {
 
 const dateLabel = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 
-/** the latest `days` of NEWS as a list */
-export function newsList(days = NEWS.length) {
-  return h('div', { class: 'news' }, ...NEWS.slice(0, days).map(d => h('div', { class: 'news-day' },
-    h('div', { class: 'news-date' }, dateLabel(d.date)),
-    h('ul', null, ...d.items.map(t => h('li', null, t))))));
+/** the latest `count` versions of the changelog as a list */
+export function newsList(count = UPDATES.length) {
+  return h('div', { class: 'news' }, ...UPDATES.slice(0, count).map(u => h('div', { class: 'news-day' },
+    h('div', { class: 'news-head' }, h('span', { class: 'news-ver' }, `v${u.version}`), h('b', null, u.title), h('span', { class: 'news-date' }, dateLabel(u.date))),
+    h('ul', null, ...u.items.map(t => h('li', null, t))))));
 }
 
 /** fill the loading screen: a tip that changes every few seconds, and what's new. Returns a stop function */
@@ -73,7 +64,8 @@ export function showBootInfo(boot: Element) {
   const tip = h('div', { class: 'boot-tip-text' }, list[k]);
   boot.append(
     h('div', { class: 'boot-tip' }, h('div', { class: 'boot-label' }, 'Tip'), tip),
-    h('div', { class: 'boot-news' }, h('div', { class: 'boot-label' }, "What's new"), newsList(1)),
+    h('div', { class: 'boot-news' }, h('div', { class: 'boot-label' }, `What's new in v${VERSION}`), newsList(1)),
+    h('div', { class: 'boot-version' }, `Version ${VERSION}`),
   );
   const timer = setInterval(() => { k = (k + 1) % list.length; tip.textContent = list[k]; }, 3500);
   return () => clearInterval(timer);
