@@ -110,7 +110,7 @@ function fanTexture() {
 }
 
 /** a soft neon pool of light for the underglow */
-function glowTexture() {
+export function glowTexture() {
   const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
   const c = cv.getContext('2d')!;
   const g = c.createRadialGradient(64, 128, 8, 64, 128, 128);
@@ -119,7 +119,7 @@ function glowTexture() {
   return new THREE.CanvasTexture(cv);
 }
 
-function shadowTexture() {
+export function shadowTexture() {
   const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
   const c = cv.getContext('2d')!;
   const g = c.createRadialGradient(64, 128, 10, 64, 128, 128);

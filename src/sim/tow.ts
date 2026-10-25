@@ -7,23 +7,26 @@
 import * as THREE from 'three';
 import type { Track } from './track';
 
-export type TowEvent = 'hooked' | 'release' | 'ring' | 'gone';
+export type TowEvent = 'arrived' | 'hooked' | 'release' | 'ring' | 'gone';
 type Stage = 'descend' | 'hook' | 'lift' | 'carry' | 'lower' | 'unhook' | 'depart' | 'gone';
 
 export const TOW = {
-  /** seconds for each stage (the carry also grows with the distance) */
-  descend: 2.1, hook: 0.7, lift: 0.7, lower: 0.9, unhook: 0.5,
+  /** seconds for each stage (the carry also grows with the distance): it streaks in from far
+   *  away and has the car back on the road in under three seconds */
+  descend: 0.85, hook: 0.3, lift: 0.35, lower: 0.4, unhook: 0.25,
+  /** where it swoops in from: this far back along the road and this high up (m) */
+  from: [110, 85] as [number, number],
   /** the cable (m), and the tow car's centre above the hooked car's centre */
   cable: 4.6, above: 5.9,
   /** how high the car is carried (m) */
   carryHeight: 3.2,
   /** rings of fire after the drop: metres along the track from the drop, and height over the road */
-  rings: [[48, 8.5], [86, 10.5], [124, 12.5]] as [number, number][],
+  rings: [[60, 8.5], [125, 11], [190, 14]] as [number, number][],
   ringRadius: 4.2,
   /** where the climb into the sky ends */
-  sky: [190, 160] as [number, number],
-  /** depart speed (m/s): from a hover to this */
-  departSpeed: 46,
+  sky: [420, 260] as [number, number],
+  /** depart speed (m/s): from a hover to this (about 500 km/h), and how hard it accelerates */
+  departSpeed: 140, departAccel: 150,
 };
 
 const up = new THREE.Vector3(0, 1, 0);
@@ -81,8 +84,8 @@ export class Tow {
     if (this.start.y < road.y - 6) this.start.set(road.x, road.y - 6, road.z);
     this.startQ = car.q.clone();
     const fwd = new THREE.Vector3(Math.sin(this.headingT), 0, Math.cos(this.headingT));
-    this.from = this.start.clone().addScaledVector(fwd, -42).addScaledVector(up, 70);
-    this.carry = THREE.MathUtils.clamp(1.4 + this.start.distanceTo(this.target) / 22, 1.6, 3.4);
+    this.from = this.start.clone().addScaledVector(fwd, -TOW.from[0]).addScaledVector(up, TOW.from[1]);
+    this.carry = THREE.MathUtils.clamp(0.45 + this.start.distanceTo(this.target) / 45, 0.55, 1.4);
     this.carPos.copy(this.start); this.carQuat.copy(this.startQ);
     this.pos.copy(this.from); this.quat.copy(this.targetQ);
     this.prevYaw = this.headingT;
@@ -93,6 +96,11 @@ export class Tow {
   get done() { return this.stage === 'gone'; }
   /** the tow car's cable end, where it meets the hooked car's roof */
   get hookPoint() { return this.pos.clone().addScaledVector(up, -BELLY - this.cable); }
+  /** how fast the tow car is flying (m/s), for its contrail and sound */
+  get flightSpeed() {
+    if (this.stage === 'descend') return this.from.distanceTo(this.start) / TOW.descend * (1 - Math.min(1, this.t / TOW.descend)) * 2.2;
+    return this.stage === 'depart' ? this.speed : 0;
+  }
   /** the whole show from the crash to the drop, in seconds */
   get toDrop() { return TOW.descend + TOW.hook + TOW.lift + this.carry + TOW.lower; }
 
@@ -109,12 +117,12 @@ export class Tow {
         const u = Math.min(1, this.t / TOW.descend), e = easeOut(u);
         const hover = this.start.clone().addScaledVector(up, TOW.above);
         this.pos.lerpVectors(this.from, hover, e);
-        this.pos.y += (1 - e) * (1 - e) * 8; // a swoop: steep at first, flattening out
+        this.pos.y += (1 - e) * (1 - e) * 14; // a swoop: steep at first, flattening out
         // nose down on the way in, levelling off to hover
         this.quat.copy(this.targetQ).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.35 * (1 - e)));
         this.fold = Math.min(1, u * 2.5);
         this.thrust = 0.6 + 0.4 * e;
-        if (u >= 1) next('hook');
+        if (u >= 1) next('hook', 'arrived');
         break;
       }
       case 'hook': {
@@ -163,7 +171,7 @@ export class Tow {
         break;
       }
       case 'depart': {
-        this.speed = Math.min(TOW.departSpeed, this.speed + dt * 22);
+        this.speed = Math.min(TOW.departSpeed, this.speed + dt * TOW.departAccel);
         this.flown += this.speed * dt;
         const { p, tan } = this.along(this.flown);
         this.pos.copy(p);

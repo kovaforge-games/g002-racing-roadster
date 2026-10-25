@@ -4,7 +4,7 @@ import type { Difficulty } from '../sim/rival';
 import type { CameraMode } from '../render/cameras';
 import type { Quality } from '../render/graphics';
 import type { TimeOfDay } from '../render/environment';
-import type { ClassId } from '../sim/classes';
+import { migrateClass, type ClassId } from '../sim/classes';
 
 export interface Settings {
   help: DrivingHelp;
@@ -31,7 +31,7 @@ export interface RaceSetup {
 }
 
 const DEFAULT_SETTINGS: Settings = { help: 'easy', camera: 'chase', quality: 'auto', sound: true, controls: 'auto', steering: 'slider' };
-const DEFAULT_SETUP: RaceSetup = { tod: 'noon', difficulty: 'club', opponents: 5, laps: 3, cls: 'rental' };
+const DEFAULT_SETUP: RaceSetup = { tod: 'noon', difficulty: 'club', opponents: 5, laps: 3, cls: 'roadster' };
 
 function load<T extends object>(key: string, defaults: T): T {
   try {
@@ -43,6 +43,8 @@ function save(key: string, v: object) { try { localStorage.setItem(key, JSON.str
 
 export const settings: Settings = load('rd-settings', DEFAULT_SETTINGS);
 export const setup: RaceSetup = load('rd-setup', DEFAULT_SETUP);
+// saves from before the Tesla line-up name the old classes
+setup.cls = migrateClass(setup.cls);
 export function saveSettings() { save('rd-settings', settings); }
 export function saveSetup() { save('rd-setup', setup); }
 /** Fun Mode's switches: rings of fire, ramps and boost pads, item boxes */

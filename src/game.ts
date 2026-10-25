@@ -19,7 +19,6 @@ import { Environment, type TimeOfDay } from './render/environment';
 import { TrackScene } from './render/trackScene';
 import { CarModel, PAINTS } from './render/carModel';
 import { buildModel, type BodyModel } from './render/models';
-import { OpenWheelModel } from './render/openWheel';
 import { CLASSES, type ClassId } from './sim/classes';
 import { ownsCar, giveCar, progress, saveProgress } from './core/progress';
 import { licenseById, medalFor, medalTime, passes, better, MEDALS, TestProgress } from './sim/licenses';
@@ -50,7 +49,7 @@ import { BodyDents } from './render/damage';
 import { DamageFx } from './render/damageFx';
 import { TowScene } from './render/towScene';
 import { DamageHud } from './ui/damageHud';
-import { Fun, FUN_DEFAULTS, ITEM_ICON, ITEM_LABEL, type FunCar, type FunOptions } from './sim/fun';
+import { Fun, FUN_DEFAULTS, ITEM_ICON, ITEM_LABEL, BURN, type FunCar, type FunOptions } from './sim/fun';
 import { racingLine } from './sim/racingLine';
 import { FunScene } from './render/funScene';
 import { Sparks, Smoke } from './render/effects';
@@ -103,7 +102,7 @@ export class Game implements PartyGame, MenuGame {
   readonly world;
   car: Car;
   /** the class the player drives; the car and model change with it */
-  cls: ClassId = 'rental';
+  cls: ClassId = 'roadster';
   readonly scene = new THREE.Scene();
   readonly renderer: Renderer;
   private env!: Environment;
@@ -251,7 +250,7 @@ export class Game implements PartyGame, MenuGame {
     this.towScene.setNight(this.env.preset.night);
     this.roadModel.onSpoiler = up => { if (this.phase === 'driving') this.hud.message(up ? 'Spoiler up' : 'Spoiler down', 1); };
 
-    this.cls = ownsCar(setup.cls) ? setup.cls : 'rental';
+    this.cls = ownsCar(setup.cls) ? setup.cls : 'roadster';
     const g = this.track.pointAt(GRID_S, 0);
     this.car = this.newCar(this.cls, g);
     this.setHelp(this.help);
@@ -283,7 +282,7 @@ export class Game implements PartyGame, MenuGame {
     const paint = this.paintIndex;
     let v = this.views.get(cls);
     if (!v) {
-      const model = cls === 'rental' ? this.roadModel : buildModel(cls);
+      const model = cls === 'roadster' ? this.roadModel : buildModel(cls);
       if (this.probe) model.setReflections(this.probe.texture);
       model.setNight(this.env.preset.night);
       v = { model, fx: new JetFx(model.root, this.vapour) };
@@ -300,7 +299,7 @@ export class Game implements PartyGame, MenuGame {
 
   /** the physics car for a class, with the garage's wing and tyres fitted */
   private newCar(cls: ClassId, g: THREE.Vector3) {
-    const car = new Car(this.world, g.x, g.y, g.z, this.track.headingAt(GRID_S), tunedSpec(CLASSES[cls].spec, CLASSES[cls].body === 'road'));
+    const car = new Car(this.world, g.x, g.y, g.z, this.track.headingAt(GRID_S), tunedSpec(CLASSES[cls].spec, CLASSES[cls].body === 'roadster'));
     fitTyres(car);
     return car;
   }
@@ -312,7 +311,6 @@ export class Game implements PartyGame, MenuGame {
     else m.paint.color.setHex(hex(gc.custom));
     applyFinish(m.paint, gc.finish);
     m.setLivery(this.playerLivery());
-    if (m instanceof OpenWheelModel) m.setNumber(gc.number);
     m.setParts({ rims: gc.rims, rimColor: hex(gc.rimColor), wing: gc.wing, glass: GLASS.find(x => x[0] === gc.glass)?.[2] ?? GLASS[0][2], glow: GLOWS.find(x => x[0] === gc.glow)?.[2] ?? 0 });
   }
 
@@ -325,7 +323,7 @@ export class Game implements PartyGame, MenuGame {
   applyGarage() {
     saveGarage();
     this.applyGarageLook();
-    const spec = tunedSpec(CLASSES[this.cls].spec, CLASSES[this.cls].body === 'road');
+    const spec = tunedSpec(CLASSES[this.cls].spec, CLASSES[this.cls].body === 'roadster');
     if (spec.liftArea !== this.car.spec.liftArea || spec.dragArea !== this.car.spec.dragArea) {
       this.dropRace();
       this.car.dispose();
@@ -375,11 +373,10 @@ export class Game implements PartyGame, MenuGame {
       model.onSpoiler = undefined; // only the player's spoiler gets a call-out
       for (let k = 0; k < PAINTS.length && model.paintName !== PAINTS[e.paint].name; k++) model.nextPaint();
       applyFinish(model.paint, 'factory');
-      // every bot has its own livery and its number on the doors (a single-seater has its own decals)
+      // every bot has its own livery and its number on the doors
       const [pattern, second] = BOT_LIVERY[(e.number - 1) % BOT_LIVERY.length];
       model.setLivery({ pattern, second, number: e.number });
       model.setParts(BOT_PARTS);
-      if (model instanceof OpenWheelModel) model.setNumber(e.number);
       model.setNight(this.env.preset.night);
       const tag = new NameTag(e.name, css(PAINTS[e.paint].color));
       const view: RivalView = { e, model, fx: new JetFx(model.root, this.vapour), skids: new SkidMarks(), tag, prev: snap(), curr: snap(), hop: false, damage: new Damage(), dents: new BodyDents(model), resets: 0 };
@@ -829,8 +826,8 @@ export class Game implements PartyGame, MenuGame {
     document.body.classList.add('in-party');
     this.hud.title.classList.add('hidden');
     this.resume();
-    // everyone in a party drives the Rental, so the cars match the friends' copies
-    this.setClass('rental');
+    // everyone in a party drives the Roadster, so the cars match the friends' copies
+    this.setClass('roadster');
     if (this.race) this.dropRace();
     this.toPartyGrid(0);
   }
@@ -1042,7 +1039,8 @@ export class Game implements PartyGame, MenuGame {
   /** the tow's moments that need a message or a sound */
   private towFrame(dt: number) {
     for (const ev of this.towEvents) {
-      if (ev === 'hooked') this.hud.message('Hooked!', 1);
+      if (ev === 'arrived') { audio.whoosh(); this.rig.kick(0.4); }
+      else if (ev === 'hooked') this.hud.message('Hooked!', 1);
       else if (ev === 'release') { this.hud.message('Back on track!', 1.6); this.rig.reset(); this.skids.clear(); this.snapshot(this.prev); this.snapshot(this.curr); }
       else if (ev === 'ring') audio.hop();
       else if (ev === 'gone') { this.tow = null; this.towScene.stop(); }
@@ -1346,8 +1344,14 @@ export class Game implements PartyGame, MenuGame {
     const night = this.env.preset.night;
     this.funScene?.update(dt, this.rig.cam, this.renderer.gl.domElement.height, night);
     for (const fc of fun.cars) {
+      const view = this.rivals.find(r => this.funCars.get(r.e) === fc);
       for (const ev of fc.events) {
         if (ev.kind === 'ring' && ev.ring) this.funScene?.embers(ev.ring, (x, y, z, dx, dy, dz, n, sp) => this.sparks.burst(x, y, z, dx, dy, dz, n, sp));
+        // the flames burn the bodywork: three times and the car is wrecked (the tow comes)
+        if (ev.kind === 'singed') {
+          (fc === me ? this.damage : view?.damage)?.burn(BURN.damage);
+          if (ev.ring) this.funScene?.embers(ev.ring, (x, y, z, dx, dy, dz, n, sp) => this.sparks.burst(x, y, z, dx, dy, dz, n, sp));
+        }
         if (fc !== me) continue;
         if (ev.kind === 'ring') { audio.whoosh(); this.rig.kick(0.3); }
         else if (ev.kind === 'singed') audio.impact(5);
@@ -1358,9 +1362,13 @@ export class Game implements PartyGame, MenuGame {
       }
       fc.events.length = 0;
     }
-    // soot on the paint of anyone who brushed the flames
-    if (me) this.model.setSoot(me.soot);
-    for (const r of this.rivals) r.model.setSoot(this.funCars.get(r.e)?.soot ?? 0);
+    // soot on the paint of anyone who brushed the flames, and flames on a car still burning
+    if (me) { this.model.setSoot(me.soot); this.funScene?.setBurning(this.model.root, me.burnT / BURN.time); }
+    for (const r of this.rivals) {
+      const fc = this.funCars.get(r.e);
+      r.model.setSoot(fc?.soot ?? 0);
+      this.funScene?.setBurning(r.model.root, (fc?.burnT ?? 0) / BURN.time);
+    }
     // the roar of the nearest ring
     const cam = this.rig.cam.position;
     let near = Infinity;

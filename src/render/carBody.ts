@@ -14,7 +14,7 @@ import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 import { CAR } from '../sim/car';
 
 /** smooth curve through (z, value) keys, z descending from nose to tail */
-function profile(keys: [number, number][]) {
+export function profile(keys: [number, number][]) {
   return (z: number) => {
     if (z >= keys[0][0]) return keys[0][1];
     for (let k = 0; k < keys.length - 1; k++) {

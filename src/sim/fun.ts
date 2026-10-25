@@ -11,6 +11,7 @@ import type { JetEvent, Jets } from './jets';
 import type { Track } from './track';
 import type { CarView } from './rival';
 import { PHYSICS_DT } from './world';
+import { speedProfile } from './racingLine';
 
 export interface FunOptions { rings: boolean; ramps: boolean; items: boolean }
 export const FUN_DEFAULTS: FunOptions = { rings: true, ramps: true, items: true };
@@ -21,7 +22,9 @@ export const ITEM_ICON: Record<ItemKind, string> = { turbo: '🚀', triple: '�
 
 /** a kicker ramp: from s0 for len metres across the road from d0 to d1, rising to h at the lip
  *  along h·u² (u = 0 at the foot, 1 at the lip), so the launch angle is atan(2h / len) */
-export interface Ramp { s0: number; len: number; h: number; d0: number; d1: number }
+export interface Ramp { s0: number; len: number; h: number; d0: number; d1: number;
+  /** the speed (m/s) the jump is designed for, and its air time (s) at that speed */
+  v: number; air: number; ring: boolean }
 export interface Pad { s0: number; len: number; d0: number; d1: number }
 /** road rings stand on the road (their bottom sinks into it), hop rings hang above it so you have
  *  to jump, and ramp rings hang where a ramp's jump reaches its highest point */
@@ -38,12 +41,18 @@ export interface Ring {
   nx: number; nz: number; rx: number; rz: number;
   /** the gantry holding it up (hop and ramp rings): pole offset across the road */
   poles: number;
+  /** where it was put and how big it was built: a moving ring slides `sway` metres either side
+   *  of d0 across the road, and a pulsing one shrinks by up to `pulse` of its radius, so the
+   *  way through keeps changing */
+  d0: number; r0: number; sway: number; pulse: number; rate: number; phase: number;
 }
 export interface Box { s: number; d: number; x: number; y: number; z: number; respawn: number }
 export interface Oil { x: number; y: number; z: number; owner: FunCar; age: number }
 
 /** half thickness of the band of flames round a hoop (m) */
-export const RING_FLAME = 0.42;
+export const RING_FLAME = 0.55;
+/** brushing the flames: the car slows hard, burns for a while and takes damage */
+export const BURN = { slow: 0.82, time: 3, drag: 0.12, damage: 0.34 };
 const RAMP_LEN = 22;
 /** the most upward acceleration (m/s²) a ramp asks of a car at its design speed */
 const RAMP_MAX_ACCEL = 19;
@@ -55,15 +64,26 @@ const G = 9.81;
  *  width ramp leaves a way round), how fast cars arrive (a fraction of the class's top speed,
  *  measured from the bots) and how long a car arriving at that speed should be in the air. The
  *  first one gets a ring of fire at the top of its jump */
-const RAMPS = [
+const RAMPS: { s0: number; d0: number; d1: number; vFrac?: number; air: number; ring: boolean }[] = [
   { s0: 140, d0: -6.5, d1: 6.5, vFrac: 0.84, air: 1.6, ring: true },
   { s0: 290, d0: -6.5, d1: -0.6, vFrac: 0.96, air: 0.8, ring: false },
+  // the rest arrive at the speed the corners before them allow (from the bots' speed profile).
+  // On a bend the half-width ones sit on the inside, so the car drifts back to the middle in the air
+  { s0: 345, d0: 0.6, d1: 6.5, air: 0.75, ring: true },
+  { s0: 1420, d0: -6.5, d1: 6.5, air: 0.6, ring: true },
+  { s0: 1510, d0: 0.6, d1: 6.5, air: 0.5, ring: false },
+  { s0: 2030, d0: 0.6, d1: 6.5, air: 0.5, ring: false },
   { s0: 2222, d0: -6.5, d1: -0.6, vFrac: 0.78, air: 0.75, ring: false },
 ];
-/** rings of fire on the road (drive through) and over it (jump through): arc length and offset */
-const ROAD_RINGS: [number, number][] = [[1440, 0], [1555, -1.2], [1700, -1.2], [1935, 1], [2010, 0.6], [2390, 0]];
+/** rings of fire on the road (drive through) and over it (jump through): arc length, offset,
+ *  and how they move: sway (m either side) or pulse (shrinking by that much of the radius) */
+type RingDef = [s: number, d: number, motion?: { sway?: number; pulse?: number; rate?: number }];
+const ROAD_RINGS: RingDef[] = [
+  [700, 0, { sway: 2.6, rate: 1.1 }], [960, 0, { pulse: 0.3 }], [1250, 0, { sway: 2.4, rate: 0.9 }], [1385, 0], [1580, -1, { pulse: 0.28 }],
+  [1700, -1.2], [1840, 0.5, { sway: 2.2, rate: 1.3 }], [1935, 1], [2010, 0.6, { pulse: 0.3 }], [2110, 0, { sway: 2.5, rate: 1 }], [2390, 0],
+];
 /** the raised ones sit where the road is nearly straight, so a jump doesn't land in a corner */
-const HOP_RINGS: [number, number][] = [[425, 3.1], [780, 1.8], [1100, -1]];
+const HOP_RINGS: RingDef[] = [[470, -3], [780, 1.8, { sway: 1.8, rate: 0.8 }], [1100, -1], [2300, 2]];
 /** item box rows: arc length; each row has four boxes across the road */
 const BOX_ROWS = [620, 1250, 1790, 2120];
 
@@ -72,32 +92,43 @@ export interface FunLayout { ramps: Ramp[]; pads: Pad[]; rings: Ring[]; boxes: {
 /** the course for a class: ramp heights (and the ring over the big jump) follow its speed */
 export function funLayout(track: Track, spec: CarSpec, opts: FunOptions, racingLine?: Float64Array): FunLayout {
   const ramps: Ramp[] = [], rings: Ring[] = [];
-  const ring = (kind: RingKind, s: number, d: number, r: number, height: number): Ring => {
+  const ring = (kind: RingKind, s: number, d: number, r: number, height: number, m: RingDef[2] = {}): Ring => {
     const p = track.pointAt(s, d), i = track.indexAt(s);
     const nx = track.tx[i], nz = track.tz[i];
-    return { kind, s, d, r, x: p.x, y: p.y + height, z: p.z, floor: p.y, nx, nz, rx: track.rightX(i), rz: track.rightZ(i), poles: track.halfWidth + 1.9 };
+    return { kind, s, d, r, x: p.x, y: p.y + height, z: p.z, floor: p.y, nx, nz, rx: track.rightX(i), rz: track.rightZ(i), poles: track.halfWidth + 1.9,
+      d0: d, r0: r, sway: m.sway ?? 0, pulse: m.pulse ?? 0, rate: m.rate ?? 1.2, phase: (s * 0.37) % (Math.PI * 2) };
   };
+  // how fast a car gets to each ramp: what the corners before it allow, up to the top speed
+  const profile = speedProfile(track, spec.grip, 10, spec.topSpeed, 0.6 * spec.liftArea / spec.mass);
   if (opts.ramps) for (const def of RAMPS) {
-    const v = spec.topSpeed * def.vFrac;
+    // (a fixed share of the top speed for the big ones, kept under what the corner allows)
+    const corner = Math.min(spec.topSpeed, profile[track.indexAt(def.s0)]);
+    const v = def.vFrac ? Math.min(spec.topSpeed * def.vFrac, corner * 0.88) : corner * (def.ring ? 0.88 : 0.95);
     // a jump of `air` seconds at v: flight distance D = v·air, and D = v² sin 2θ / g
     const theta = 0.5 * Math.asin(Math.min(0.6, G * def.air / v));
     // long enough that the curve up the ramp (v² tanθ / len) doesn't bottom out the suspension
     const len = Math.max(RAMP_LEN, (v * v * Math.tan(theta)) / RAMP_MAX_ACCEL);
     const h = (len / 2) * Math.tan(theta);
-    ramps.push({ s0: def.s0, len, h, d0: def.d0, d1: def.d1 });
+    ramps.push({ s0: def.s0, len, h, d0: def.d0, d1: def.d1, v, air: def.air, ring: def.ring && opts.rings });
     if (def.ring && opts.rings) {
       // the top of the jump: half the flight distance on, D·tanθ / 4 above the lip
       const D = v * def.air, apex = (D * Math.tan(theta)) / 4;
-      rings.push(ring('ramp', def.s0 + len + D / 2, (def.d0 + def.d1) / 2, 3.5, h + apex + spec.comHeight + 0.3));
+      // centred on the middle of the car (a tall one sits higher in the hoop)
+      const top = spec.cabin ? spec.cabinAt[0] + 2 * spec.cabin[1] : spec.tubAt[0] + 2 * spec.tub[1];
+      // the car flies straight on from the lip, so on a bend the ring sits on that line, not the road's
+      const lip = track.pointAt(def.s0 + len, (def.d0 + def.d1) / 2), li = track.indexAt(def.s0 + len);
+      const ax = lip.x + track.tx[li] * D / 2, az = lip.z + track.tz[li] * D / 2, at = track.nearest(ax, az, li);
+      const rg = ring('ramp', at.s, at.lateral, 3.5, 0);
+      rings.push({ ...rg, x: ax, z: az, y: lip.y + h + apex + spec.comHeight + Math.max(0.3, top / 2 - spec.comHeight), nx: track.tx[li], nz: track.tz[li], rx: track.rightX(li), rz: track.rightZ(li) });
     }
   }
   if (opts.rings) {
-    // road rings: the hoop's centre 1.3 m up, so its bottom is in the road and the opening at
-    // road level is about 6.6 m wide
-    for (const [s, d] of ROAD_RINGS) rings.push(ring('road', s, d, 3.6, 1.3));
+    // road rings: the hoop's centre 1.2 m up, so its bottom is in the road and the opening at
+    // road level is about 6.4 m wide (less the flames)
+    for (const [s, d, m] of ROAD_RINGS) rings.push(ring('road', s, d, 3.4, 1.2, m));
     // hop rings: the bottom of the flames at about 1.15 m, under a roof but over a bonnet, so
     // driving under them singes the car; a jump carries it through the middle
-    for (const [s, d] of HOP_RINGS) rings.push(ring('hop', s, d, 2.5, 3.65 + spec.comHeight - 0.32));
+    for (const [s, d, m] of HOP_RINGS) rings.push(ring('hop', s, d, 2.5, 3.65 + spec.comHeight - 0.32, m));
   }
   // boost pads on the exits of the five slowest corners, on the racing line
   const pads: Pad[] = [];
@@ -175,6 +206,8 @@ export interface FunCar {
   stunt: number; rings: number; bestAir: number; streak: number;
   /** 1 right after brushing the flames, fading: the paint shows soot */
   soot: number;
+  /** seconds left on fire after brushing the flames: the car slows and smokes */
+  burnT: number;
   /** a bot uses its item after this time */
   useAt: number;
   /** a bot's decision for each ring this lap: go for it or not */
@@ -217,7 +250,7 @@ export class Fun {
   add(name: string, car: Car, jets: Jets, view: CarView, isPlayer: boolean, bot: boolean): FunCar {
     const p = car.body.translation();
     const fc: FunCar = { name, car, jets, view, isPlayer, bot, item: null, charges: 0, boostT: 0, boostAccel: 0, spinT: 0, spinDir: 1, slideT: 0,
-      airT: 0, rampAir: false, stunt: 0, rings: 0, bestAir: 0, streak: 0, soot: 0, useAt: 0, goFor: new Map(), prev: { x: p.x, y: p.y, z: p.z }, padOn: false, events: [] };
+      airT: 0, rampAir: false, stunt: 0, rings: 0, bestAir: 0, streak: 0, soot: 0, burnT: 0, useAt: 0, goFor: new Map(), prev: { x: p.x, y: p.y, z: p.z }, padOn: false, events: [] };
     this.cars.push(fc);
     return fc;
   }
@@ -232,14 +265,28 @@ export class Fun {
     for (const b of this.boxes) b.respawn = 0;
     this.oils.length = 0;
     for (const fc of this.cars) {
-      Object.assign(fc, { item: null, charges: 0, boostT: 0, spinT: 0, slideT: 0, airT: 0, rampAir: false, stunt: 0, rings: 0, bestAir: 0, streak: 0, soot: 0, padOn: false });
+      Object.assign(fc, { item: null, charges: 0, boostT: 0, spinT: 0, slideT: 0, airT: 0, rampAir: false, stunt: 0, rings: 0, bestAir: 0, streak: 0, soot: 0, burnT: 0, padOn: false });
       fc.goFor.clear(); fc.events.length = 0;
       this.teleported(fc);
     }
   }
 
   /** the car was put somewhere new (a reset): don't count the jump as a ring crossing */
-  teleported(fc: FunCar) { const p = fc.car.body.translation(); fc.prev = { x: p.x, y: p.y, z: p.z }; fc.spinT = 0; fc.boostT = 0; }
+  teleported(fc: FunCar) { const p = fc.car.body.translation(); fc.prev = { x: p.x, y: p.y, z: p.z }; fc.spinT = 0; fc.boostT = 0; fc.burnT = 0; }
+
+  /** moving rings slide across the road and pulsing ones shrink and grow (the same for everyone) */
+  private moveRings() {
+    for (const r of this.layout.rings) {
+      if (!r.sway && !r.pulse) continue;
+      const w = Math.sin(this.t * r.rate + r.phase);
+      if (r.sway) {
+        r.d = r.d0 + r.sway * w;
+        const p = this.track.pointAt(r.s, r.d);
+        r.x = p.x; r.z = p.z;
+      }
+      if (r.pulse) r.r = r.r0 * (1 - r.pulse * (0.5 + 0.5 * w));
+    }
+  }
 
   private boost(fc: FunCar, time: number, accel: number) {
     const active = fc.boostT > 0;
@@ -258,6 +305,12 @@ export class Fun {
       const f = fc.boostAccel * c.spec.mass * fade;
       b.addForce({ x: fwd.x * f, y: fwd.y * f, z: fwd.z * f }, true);
     }
+    if (fc.burnT > 0) {
+      // on fire: the motor cuts back and the car drags
+      fc.burnT -= dt;
+      const lv = b.linvel(), k = 1 - dt * BURN.drag;
+      b.setLinvel({ x: lv.x * k, y: lv.y, z: lv.z * k }, true);
+    }
     if (fc.spinT > 0) {
       // spinning on oil: the car yaws round and scrubs off speed
       fc.spinT -= dt;
@@ -271,6 +324,7 @@ export class Fun {
   /** after the world has stepped and every car's view (s, lateral) is up to date */
   afterStep(dt = PHYSICS_DT, running = true) {
     this.t += dt;
+    this.moveRings();
     for (const fc of this.cars) {
       fc.soot = Math.max(0, fc.soot - dt / 6);
       const p = fc.car.body.translation();
@@ -309,7 +363,9 @@ export class Fun {
       const qx = a.x + (p.x - a.x) * f, qy = a.y + (p.y - a.y) * f, qz = a.z + (p.z - a.z) * f;
       // the body's corners in the hoop's plane: centre, left, right, roof and floor
       const { up, right } = fc.car.axes();
-      const halfW = fc.car.spec.tub[0], cy = 0.28;
+      const S = fc.car.spec, halfW = S.tub[0], cy = 0.28;
+      // the roof: the top of the cabin (or the body), above the centre of mass
+      const roof = S.cabin ? S.cabinAt[0] + 2 * S.cabin[1] - S.comHeight : S.tubAt[0] + 2 * S.tub[1] - S.comHeight + 0.3;
       const plane = (ox: number, oy: number, oz: number) => {
         const x = qx + ox - r.x, y = qy + oy - r.y, z = qz + oz - r.z;
         return Math.hypot(x * r.rx + z * r.rz, y);
@@ -318,7 +374,7 @@ export class Fun {
         plane(up.x * cy, up.y * cy, up.z * cy),
         plane(up.x * cy + right.x * halfW, up.y * cy + right.y * halfW, up.z * cy + right.z * halfW),
         plane(up.x * cy - right.x * halfW, up.y * cy - right.y * halfW, up.z * cy - right.z * halfW),
-        plane(up.x * 0.85, up.y * 0.85, up.z * 0.85),
+        plane(up.x * roof, up.y * roof, up.z * roof),
         plane(-up.x * 0.25, -up.y * 0.25, -up.z * 0.25),
       ];
       const far = Math.max(...pts), near = Math.min(...pts);
@@ -334,8 +390,10 @@ export class Fun {
         fc.streak = 0;
         fc.soot = 1;
         const lv = fc.car.body.linvel();
-        fc.car.body.setLinvel({ x: lv.x * 0.93, y: lv.y, z: lv.z * 0.93 }, true);
-        this.say(fc, { kind: 'singed', ring: r, text: 'TOO HOT! Singed by the flames' });
+        fc.car.body.setLinvel({ x: lv.x * BURN.slow, y: lv.y, z: lv.z * BURN.slow }, true);
+        const again = fc.burnT > 0;
+        fc.burnT = BURN.time;
+        this.say(fc, { kind: 'singed', ring: r, text: again ? 'STILL ON FIRE! Keep out of the flames' : 'ON FIRE! Burnt by the flames' });
       } else if (Math.hypot((qx - r.x) * r.rx + (qz - r.z) * r.rz, qy - r.y) < r.r + 5) fc.streak = 0;
     }
   }

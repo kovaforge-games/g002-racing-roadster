@@ -38,7 +38,7 @@ async function boot() {
   if (params.has('showroom') || location.hash === '#showroom') {
     const car = params.get('car');
     const room = new Showroom(document.getElementById('app')!, q && ['low', 'medium', 'high', 'ultra'].includes(q) ? q as Quality : 'ultra',
-      car && CLASS_ORDER.includes(car as ClassId) ? car as ClassId : 'rental');
+      car && CLASS_ORDER.includes(car as ClassId) ? car as ClassId : 'roadster');
     boot?.remove();
     document.querySelector('.overlay.title')?.remove();
     (window as unknown as { __showroom: Showroom }).__showroom = room;

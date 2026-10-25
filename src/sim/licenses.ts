@@ -34,26 +34,26 @@ export const MEDAL_FACTOR: Record<Medal, number> = { gold: 1.02, silver: 1.07, b
 export const MEDALS: Medal[] = ['gold', 'silver', 'bronze'];
 
 export const LICENSES: License[] = [
-  { id: 'nat-b', name: 'National B', cls: '0x1.5', needs: null, car: '0x1.5', tests: [
-    { name: 'Launch and brake', a: 200, b: 520, ref: 8.22, tip: 'Full power off the line, then brake hard and turn in for the long right.' },
-    { name: 'The long right', a: 460, b: 800, ref: 10.22, tip: 'One long corner: be patient on the throttle and keep a smooth arc.' },
-    { name: 'The hairpin', a: 1820, b: 2010, ref: 6.80, tip: 'The tightest corner on the track. Brake early, turn late, power out.' },
-    { name: 'Left complex', a: 790, b: 1100, ref: 9.81, tip: 'Three lefts in a row: the middle one is the slowest.' },
-    { name: 'Full lap', a: 0, b: 0, ref: 55.54, tip: 'Everything together: one clean lap from a standing start.' },
+  { id: 'nat-b', name: 'National B', cls: 'model3', needs: null, car: 'model3', tests: [
+    { name: 'Launch and brake', a: 200, b: 520, ref: 9.53, tip: 'Full power off the line, then brake hard and turn in for the long right.' },
+    { name: 'The long right', a: 460, b: 800, ref: 11.67, tip: 'One long corner: be patient on the throttle and keep a smooth arc.' },
+    { name: 'The hairpin', a: 1820, b: 2010, ref: 7.76, tip: 'The tightest corner on the track. Brake early, turn late, power out.' },
+    { name: 'Left complex', a: 790, b: 1100, ref: 10.82, tip: 'Three lefts in a row: the middle one is the slowest.' },
+    { name: 'Full lap', a: 0, b: 0, ref: 64.12, tip: 'Everything together: one clean lap from a standing start.' },
   ] },
-  { id: 'nat-a', name: 'National A', cls: '0x2.5', needs: 'nat-b', car: null, tests: [
-    { name: 'The esses', a: 1540, b: 1840, ref: 8.04, tip: 'Left, right, left: set up each corner from the one before.' },
-    { name: 'Right complex', a: 1090, b: 1560, ref: 11.94, tip: 'A long run of rights with the tightest corner in the middle.' },
-    { name: 'Downforce', a: 2270, b: 520, ref: 13.34, tip: 'The faster you go, the more grip you have: trust the wing through the sweeper.' },
-    { name: 'Final sector', a: 1820, b: 2510, ref: 14.02, tip: 'Hairpin, the long right sweeper, then flat out to the line.' },
-    { name: 'Full lap', a: 0, b: 0, ref: 49.06, tip: 'One clean lap in the 0x2.5.' },
+  { id: 'nat-a', name: 'National A', cls: 'modelx', needs: 'nat-b', car: null, tests: [
+    { name: 'The esses', a: 1540, b: 1840, ref: 9.10, tip: 'Left, right, left: set up each corner from the one before.' },
+    { name: 'Right complex', a: 1090, b: 1560, ref: 13.47, tip: 'A long run of rights with the tightest corner in the middle.' },
+    { name: 'The sweeper', a: 2270, b: 520, ref: 15.38, tip: 'The Model X is heavy: be smooth through the long sweeper and let it carry its speed.' },
+    { name: 'Final sector', a: 1820, b: 2510, ref: 16.98, tip: 'Hairpin, the long right sweeper, then flat out to the line.' },
+    { name: 'Full lap', a: 0, b: 0, ref: 60.29, tip: 'One clean lap in the Model X.' },
   ] },
-  { id: 'int-a', name: 'International A', cls: '0x3.5', needs: 'nat-a', car: null, tests: [
-    { name: 'First sector', a: 0, b: 800, ref: 14.55, tip: 'Down the main straight at 300 km/h and into the long right.' },
-    { name: 'Middle sector', a: 790, b: 1660, ref: 18.30, tip: 'Both complexes back to back. Rhythm matters more than bravery.' },
-    { name: 'Last sector', a: 1650, b: 2510, ref: 15.48, tip: 'The esses, the hairpin and the sweeper.' },
-    { name: 'Hairpin to hairpin', a: 1300, b: 2010, ref: 14.85, tip: 'From the tightest right to the tightest left.' },
-    { name: 'Full lap', a: 0, b: 0, ref: 43.79, tip: 'The fastest car in the game, one perfect lap.' },
+  { id: 'int-a', name: 'International A', cls: 'models', needs: 'nat-a', car: null, tests: [
+    { name: 'First sector', a: 0, b: 800, ref: 18.27, tip: 'Down the main straight at over 300 km/h and into the long right.' },
+    { name: 'Middle sector', a: 790, b: 1660, ref: 22.45, tip: 'Both complexes back to back. Rhythm matters more than bravery.' },
+    { name: 'Last sector', a: 1650, b: 2510, ref: 20.22, tip: 'The esses, the hairpin and the sweeper.' },
+    { name: 'Hairpin to hairpin', a: 1300, b: 2010, ref: 18.37, tip: 'From the tightest right to the tightest left.' },
+    { name: 'Full lap', a: 0, b: 0, ref: 56.36, tip: 'The Model S Plaid, the fastest car in the career: one perfect lap.' },
   ] },
 ];
 

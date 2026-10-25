@@ -55,6 +55,9 @@ export class Damage {
     return h;
   }
 
+  /** burnt by a ring of fire: the paint and panels all round take `amount` (no dent) */
+  burn(amount: number) { for (const z of ZONES) this.zones[z] = Math.min(1, this.zones[z] + amount); }
+
   /** the worst zone, 0..1 */
   get worst() { return Math.max(...ZONES.map(z => this.zones[z])); }
   /** the car can't go on: a zone is wrecked */

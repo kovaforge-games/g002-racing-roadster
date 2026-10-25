@@ -24,8 +24,9 @@ export function applyDrivingHelp(help: DrivingHelp, inp: CarInputs, car: Car): C
 
   // never ask for more steering than the tyres can hold at this speed (easy only)
   if (help === 'easy') {
-    const aMax = S.grip * 0.92 * (G + (0.6 * S.liftArea * speed * speed) / S.mass);
-    const dMax = Math.atan((S.wheelbase * aMax) / Math.max(speed * speed, 1)) * 1.35;
+    // (with some room over the limit, so the car turns in sharply and uses all of its grip)
+    const aMax = S.grip * 0.97 * (G + (0.6 * S.liftArea * speed * speed) / S.mass);
+    const dMax = Math.atan((S.wheelbase * aMax) / Math.max(speed * speed, 1)) * 1.5;
     const maxSteer = Math.min(1, dMax / lock);
     out.steer = Math.max(-maxSteer, Math.min(maxSteer, out.steer));
   }

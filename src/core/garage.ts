@@ -69,8 +69,9 @@ export const hex = (css: string) => parseInt(css.replace('#', ''), 16) || 0;
 /** the class's spec with the wing fitted (road cars only: the single-seaters keep theirs) */
 export function tunedSpec(spec: CarSpec, roadCar: boolean, g: GarageConfig = garage): CarSpec {
   if (!roadCar || g.wing === 'active') return spec;
-  if (g.wing === 'fixed') return { ...spec, liftArea: spec.liftArea + 0.45, dragArea: spec.dragArea + 0.06 };
-  return { ...spec, liftArea: Math.max(0.15, spec.liftArea - 0.3), dragArea: Math.max(0.4, spec.dragArea - 0.05) };
+  // (only the active wing doubles as an airbrake)
+  if (g.wing === 'fixed') return { ...spec, liftArea: spec.liftArea + 0.45, dragArea: spec.dragArea + 0.06, airbrake: 0.15 };
+  return { ...spec, liftArea: Math.max(0.15, spec.liftArea - 0.3), dragArea: Math.max(0.4, spec.dragArea - 0.05), airbrake: 0 };
 }
 
 /** put the chosen tyres on a physics car (front left, front right, rear left, rear right) */

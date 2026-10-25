@@ -13,7 +13,7 @@ import { buildWorld, initPhysics, PHYSICS_DT } from '../src/sim/world';
 import { Jets, JETS, type JetInputs } from '../src/sim/jets';
 import { Canisters } from '../src/sim/canisters';
 import { Race, RACE_LAPS, MAX_OPPONENTS, type RaceOptions } from '../src/sim/race';
-import { CLASSES, CLASS_ORDER, type ClassId } from '../src/sim/classes';
+import { CAREER, CLASSES, CLASS_ORDER, type ClassId } from '../src/sim/classes';
 import { newRun, scoreRound, standings, isOver } from '../src/sim/championship';
 import { LICENSES, medalFor, medalTime } from '../src/sim/licenses';
 import { referenceTime, referenceLap } from './license-times';
@@ -305,10 +305,12 @@ function runRace(opts: RaceOptions) {
 // ---- the classes: straight-line numbers, then two laps of the bots racing in each
 {
   const want: Record<ClassId, { t100: [number, number]; top: [number, number] }> = {
-    rental: { t100: [4, 6], top: [195, 215] }, '0x1.5': { t100: [2.3, 3], top: [250, 270] },
-    '0x2.5': { t100: [2, 2.7], top: [290, 310] }, '0x3.5': { t100: [1.8, 2.4], top: [330, 350] },
+    roadster: { t100: [3.4, 4.4], top: [205, 225] }, model3: { t100: [3, 3.8], top: [255, 275] },
+    modelx: { t100: [2.4, 3.1], top: [260, 280] }, models: { t100: [2.3, 3], top: [315, 335] },
+    modely: { t100: [3.4, 4.2], top: [240, 260] }, cybertruck: { t100: [2.9, 3.6], top: [205, 222] },
+    cybercab: { t100: [4, 5], top: [185, 205] }, semi: { t100: [4.8, 6.2], top: [145, 165] },
   };
-  const laps: number[] = [];
+  const laps: Partial<Record<ClassId, number>> = {};
   for (const id of CLASS_ORDER) {
     const spec = CLASSES[id].spec;
     const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
@@ -325,29 +327,29 @@ function runRace(opts: RaceOptions) {
     world.free();
     const { race } = runRace({ opponents: 5, laps: 2, difficulty: 'expert', cls: id });
     const best = Math.min(...race.rivals.map(e => e.bestLap ?? 99));
-    laps.push(best);
+    laps[id] = best;
     console.log(`${id}: 0-100 ${t100.toFixed(2)} s, top ${top.toFixed(0)} km/h${spec.gears ? `, gears up to ${topGear} of ${spec.gears}` : ''}, best bot lap ${best.toFixed(1)} s`);
     check(t100 > want[id].t100[0] && t100 < want[id].t100[1] && top > want[id].top[0] && top < want[id].top[1], `${id}: 0-100 and top speed in range`);
     check(spec.gears === 0 || topGear === spec.gears, `${id}: the gearbox shifts all the way up`);
     check(race.allFinished && race.rivals.reduce((a, e) => a + e.resets, 0) <= 2, `${id}: everyone finishes, at most 2 bot resets`);
   }
-  check(laps.every((t, k) => k === 0 || t < laps[k - 1] - 2), 'each class laps at least 2 s quicker than the one before');
+  check(CAREER.every((id, k) => k === 0 || laps[id]! < laps[CAREER[k - 1]]! - 2), 'each career car laps at least 2 s quicker than the one before');
 }
 
 // ---- championship scoring
 {
   console.log('championship scoring:');
-  const run = newRun('0x1.5', 'club');
+  const run = newRun('model3', 'club');
   const names = ['A', 'B', 'You', 'C'];
   scoreRound(run, names.map(name => ({ name })));
   scoreRound(run, ['B', 'A', 'C', 'You'].map(name => ({ name })));
   const table = standings(run);
   check(run.points.A === 43 && run.points.B === 43 && run.points.You === 27 && run.points.C === 27, 'points 25-18-15-12 add up over two rounds');
   check(table.length === 4 && table[0].points === 43, 'the standings list everyone, most points first');
-  const tie = { ...newRun('0x1.5', 'club'), points: { X: 26, Y: 26, Z: 26 }, finishes: { X: [3, 1], Y: [2, 2], Z: [1, 10] } };
+  const tie = { ...newRun('model3', 'club'), points: { X: 26, Y: 26, Z: 26 }, finishes: { X: [3, 1], Y: [2, 2], Z: [1, 10] } };
   check(standings(tie).map(r => r.name).join('') === 'XZY', 'a tie on points goes to more wins, then more seconds');
   scoreRound(run, names.map(name => ({ name })));
-  check(isOver(run) && run.round === 3, 'the 0x1.5 Championship is over after 3 rounds');
+  check(isOver(run) && run.round === 3, 'the Model 3 Championship is over after 3 rounds');
 }
 
 // ---- license targets: the reference driver still makes each target, so the medals stay fair
@@ -370,9 +372,9 @@ function runRace(opts: RaceOptions) {
     console.log(`  ${id.padEnd(8)} reference flying lap ${t?.toFixed(2) ?? 'dnf'} s (stored ${LAP_REF[id].toFixed(2)})`);
     check(t !== null && Math.abs(t / LAP_REF[id] - 1) < 0.03, `${id}: flying lap within 3% of the stored one (rerun scripts/license-times.ts after a handling change)`);
   }
-  const q = qualifyingOrder(null, 5, '0x1.5', 'club');
+  const q = qualifyingOrder(null, 5, 'model3', 'club');
   check(q.length === 6 && q[5].name === 'You' && q.slice(0, 5).every((r, k) => k === 0 || r.time! >= q[k - 1].time!), 'qualifying: quickest first, no time at the back');
-  const pole = qualifyingOrder(1, 5, '0x1.5', 'pro');
+  const pole = qualifyingOrder(1, 5, 'model3', 'pro');
   check(pole[0].name === 'You', 'qualifying: a quicker lap than every bot takes pole');
   const world = buildWorld(track, terrain);
   const car = new Car(world, 0, 0, 0, 0);
@@ -440,20 +442,19 @@ function runRace(opts: RaceOptions) {
 {
   console.log('fun mode:');
   const line = racingLine(track);
-  const RAMP_SPEED = [0.84, 0.96, 0.78];
   for (const id of CLASS_ORDER) {
     const spec = CLASSES[id].spec;
     const world = buildWorld(track, terrain);
     const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);
-    const jumps = fun.layout.ramps.map((r, k) => {
+    const jumps = fun.layout.ramps.map(r => {
       // straight down the middle of the ramp at its design speed, the driving help on
-      const d = (r.d0 + r.d1) / 2, v = spec.topSpeed * RAMP_SPEED[k], s0 = r.s0 - 60;
+      const d = (r.d0 + r.d1) / 2, v = r.v, s0 = r.s0 - 60;
       const p = track.pointAt(s0, d), h = track.headingAt(s0);
       const car = new Car(world, p.x, p.y, p.z, h, spec), jets = new Jets();
       const fc = fun.add('test', car, jets, { car, s: s0, lateral: d, speed: v }, true, false);
       car.body.setLinvel({ x: Math.sin(h) * v, y: 0, z: Math.cos(h) * v }, true);
       let hint = track.nearest(p.x, p.z).i, t = 0, air = 0, best = 0, land = 0, flipped = false;
-      while (t < 4) {
+      while (t < 6) {
         const pos = car.body.translation();
         const near = track.nearest(pos.x, pos.z, hint); hint = near.i;
         fc.view.s = near.s; fc.view.lateral = near.lateral;
@@ -467,18 +468,21 @@ function runRace(opts: RaceOptions) {
         if (ax.up.y < 0.3) flipped = true;
         if (best > 0.3 && t > 2.5) break;
       }
-      const rings = fc.rings;
+      // the ramp's own ring (a road ring on the run-up doesn't count)
+      const rings = fc.events.filter(e => e.kind === 'ring' && e.ring?.kind === 'ramp').length;
       fun.clearCars(); world.removeRigidBody(car.body);
       return { best, land, flipped, rings };
     });
-    console.log(`  ${id.padEnd(8)} ramp jumps ${jumps.map(j => `${j.best.toFixed(2)} s`).join(', ')}, landing ${jumps.map(j => j.land.toFixed(1)).join(', ')} m across`);
-    check(jumps.every((j, k) => j.best > [1.3, 0.45, 0.45][k] && !j.flipped && Math.abs(j.land) < track.halfWidth + 1), `${id}: every ramp jump lands on the road the right way up`);
-    check(jumps[0].rings === 1, `${id}: the big jump goes through its ring of fire`);
+    console.log(`  ${id.padEnd(8)} ramp jumps ${jumps.map(j => `${j.best.toFixed(2)} s`).join(', ')}, landing ${jumps.map(j => j.land.toFixed(1)).join(', ')} m across, rings ${jumps.map(j => j.rings).join('')}`);
+    const ramps = fun.layout.ramps;
+    check(ramps.length >= 7, `${id}: at least 7 ramps`);
+    check(jumps.every((j, k) => j.best > ramps[k].air * 0.55 && !j.flipped && Math.abs(j.land) < track.halfWidth + 1), `${id}: every ramp jump lands on the road the right way up`);
+    check(jumps.every((j, k) => !ramps[k].ring || j.rings === 1), `${id}: every ramp with a ring of fire jumps through it`);
     world.free();
   }
   // rings: through a road ring scores, under a raised one singes; items
   {
-    const spec = CLASSES['0x1.5'].spec, world = buildWorld(track, terrain);
+    const spec = CLASSES.model3.spec, world = buildWorld(track, terrain);
     const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);
     const drive = (d: number, secs: number, fc: ReturnType<typeof fun.add>) => {
       const car = fc.car;
@@ -533,7 +537,7 @@ function runRace(opts: RaceOptions) {
   }
   // a fun race: the bots go for rings, boxes and items and all get round
   {
-    const spec = CLASSES['0x1.5'].spec, world = buildWorld(track, terrain);
+    const spec = CLASSES.model3.spec, world = buildWorld(track, terrain);
     const car = new Car(world, 0, -100, 0, 0, spec), jets = new Jets();
     const race = new Race(track, world, new Canisters(track), car, jets, { opponents: 5, laps: 2, difficulty: 'pro' });
     const fun = new Fun(track, world, spec, FUN_DEFAULTS, line);

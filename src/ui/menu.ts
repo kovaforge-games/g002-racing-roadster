@@ -178,7 +178,7 @@ export class Menu {
     // in Fun Mode every car is available, as in g001
     const owns = (c: ClassId) => fun || ownsCar(c);
     const about = h('div', { class: 'field-about' }, DIFFICULTIES[setup.difficulty].about);
-    if (!owns(setup.cls)) setup.cls = 'rental';
+    if (!owns(setup.cls)) setup.cls = 'roadster';
     const start = () => {
       saveSetup();
       if (mode === 'weekend') this.game.startWeekend(setup);

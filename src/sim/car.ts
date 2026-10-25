@@ -33,8 +33,10 @@ export const CAR = {
   frontDriveShare: 0.42,
   maxReverse: 9,
   topSpeed: 72,
-  brakeDecel: 13.5,
+  brakeDecel: 15,
   frontBrakeShare: 0.62,
+  /** extra drag area from an airbrake (the active wing standing up under hard braking at speed) */
+  airbrake: 0.45,
   /** coasting regen, as a deceleration (m/s²) */
   regenDecel: 1.6,
   dragArea: 0.55,
@@ -45,6 +47,9 @@ export const CAR = {
   /** collision boxes (half extents, m): the lower tub, and the cabin (or none) */
   tub: [0.94, 0.28, 2.32] as [number, number, number],
   cabin: [0.7, 0.28, 1.05] as [number, number, number] | null,
+  /** where they sit: the bottom of each box above the road and its centre along the car */
+  tubAt: [0.19, 0] as [number, number],
+  cabinAt: [0.77, -0.25] as [number, number],
   inertia: { x: 3300, y: 3600, z: 760 },
   /** a sequential gearbox (auto-shifting) with this many gears, or 0 for a one-speed EV */
   gears: 0,
@@ -83,8 +88,11 @@ export const hardpointY = (c: CarSpec) => c.wheelRadius + c.restLength - 0.06 - 
 
 /** maximum road-wheel angle at a given speed: full lock at parking speed, much less at speed */
 export function steerLockAt(speed: number, lock = CAR.steerLock) {
-  return lock / (1 + (Math.abs(speed) / 21) ** 1.4);
+  return lock / (1 + (Math.abs(speed) / 24) ** 1.4);
 }
+
+/** how fast the road wheels can turn (rad/s): quick enough for a crisp turn-in, never a snap */
+const STEER_RATE = 5.5;
 
 export interface WheelState {
   steer: number; spin: number; suspension: number; contact: boolean;
@@ -149,11 +157,11 @@ export class Car {
       .setTranslation(x, y + S.comHeight + 0.05, z).setRotation(q)
       .setCanSleep(false).setCcdEnabled(true).setAngularDamping(0.4).setLinearDamping(0));
     // body shell: lower tub and cabin, both relative to the centre of mass
-    const tub = RAPIER.ColliderDesc.cuboid(...S.tub).setTranslation(0, 0.19 + S.tub[1] - S.comHeight, 0)
+    const tub = RAPIER.ColliderDesc.cuboid(...S.tub).setTranslation(0, S.tubAt[0] + S.tub[1] - S.comHeight, S.tubAt[1])
       .setMassProperties(S.mass, { x: 0, y: 0, z: 0 }, S.inertia, { x: 0, y: 0, z: 0, w: 1 })
       .setFriction(0.3).setRestitution(0.05);
     world.createCollider(tub, this.body);
-    if (S.cabin) world.createCollider(RAPIER.ColliderDesc.cuboid(...S.cabin).setTranslation(0, 0.77 + S.cabin[1] - S.comHeight, -0.25)
+    if (S.cabin) world.createCollider(RAPIER.ColliderDesc.cuboid(...S.cabin).setTranslation(0, S.cabinAt[0] + S.cabin[1] - S.comHeight, S.cabinAt[1])
       .setDensity(0).setFriction(0.3), this.body);
 
     const v = (this.vehicle = world.createVehicleController(this.body));
@@ -213,7 +221,7 @@ export class Car {
 
     // steering: speed-sensitive lock, eased so the car can't snap its wheels across
     const target = -Math.max(-1, Math.min(1, inp.steer + this.steerPull)) * steerLockAt(vF, S.steerLock);   // positive road-wheel angle steers left
-    this.steerAngle += Math.max(-3 * dt, Math.min(3 * dt, target - this.steerAngle));
+    this.steerAngle += Math.max(-STEER_RATE * dt, Math.min(STEER_RATE * dt, target - this.steerAngle));
     // a touch of Ackermann: the inside wheel turns a little more
     const ack = 1 + Math.min(0.15, Math.abs(this.steerAngle) * 0.5);
     const left = this.steerAngle > 0;
@@ -265,7 +273,9 @@ export class Car {
 
     // aero: drag against the motion, downforce along the car's down axis
     // (a car close behind another one sits in its slipstream: up to a third less drag)
-    const drag = 0.5 * RHO * S.dragArea * speed * (1 - 0.28 * this.draft);
+    // the active wing stands up as an airbrake under hard braking at speed
+    const air = braking && vF > 20 ? S.airbrake * Math.min(1, (inp.brake - 0.3) / 0.5) : 0;
+    const drag = 0.5 * RHO * (S.dragArea * (1 - 0.28 * this.draft) + Math.max(0, air)) * speed;
     // rolling resistance, much higher on grass
     const grass = this.surface.reduce((a, g, i) => a + (v.wheelIsInContact(i) ? 1 - g : 0), 0) / 4;
     const roll = speed > 0.3 && grounded ? (S.rollResist + grass * 0.35) * S.mass * G / speed : 0;

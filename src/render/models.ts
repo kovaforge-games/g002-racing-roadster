@@ -1,11 +1,11 @@
-// The 3D model for a race class: the roadster body for road cars, the single-seater for the 0x classes.
+// The 3D model for a race class: the Roadster body (with its active wing), or one of the other Teslas.
 import { CarModel } from './carModel';
-import { OpenWheelModel } from './openWheel';
+import { TeslaModel } from './teslaModel';
 import { CLASSES, type ClassId } from '../sim/classes';
 
-export type BodyModel = CarModel | OpenWheelModel;
+export type BodyModel = CarModel | TeslaModel;
 
 export function buildModel(cls: ClassId): BodyModel {
   const c = CLASSES[cls];
-  return c.body === 'open' ? new OpenWheelModel(c.spec) : new CarModel();
+  return c.body === 'roadster' ? new CarModel() : new TeslaModel(c.body, c.spec);
 }

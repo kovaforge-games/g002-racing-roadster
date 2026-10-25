@@ -70,6 +70,7 @@ export class TowScene {
   private fireLight: THREE.PointLight | null = null;
   private time = 0;
   private puffT = 0;
+  private trailT = 0;
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private camSet = false;
@@ -196,6 +197,18 @@ export class TowScene {
         const a = Math.random() * Math.PI * 2;
         this.vapour.emit(tow.pos.x + Math.sin(a) * 0.8, ground + 0.25, tow.pos.z + Math.cos(a) * 0.8, Math.sin(a) * 9, 0.4, Math.cos(a) * 9, 0.5, 0.9, 0.45);
       }
+      // a contrail streaming off it while it flies flat out (on the way in and on the way out)
+      const fast = tow.flightSpeed;
+      if (fast > 25 && root.visible) {
+        this.trailT += dt * Math.min(160, fast * 1.2);
+        const back = this.v.set(0, 0, -1).applyQuaternion(tow.quat);
+        while (this.trailT >= 1) {
+          this.trailT--;
+          const r = Math.random();
+          this.vapour.emit(tow.pos.x + back.x * (1.4 + r * fast * dt), tow.pos.y + back.y * (1.4 + r * fast * dt) + 0.1, tow.pos.z + back.z * (1.4 + r * fast * dt),
+            back.x * 4 + (Math.random() - 0.5), back.y * 4 + (Math.random() - 0.5), back.z * 4 + (Math.random() - 0.5), 0.9, 1.4, 0.5);
+        }
+      }
       // the cable from the belly to the hook
       const top = this.v.copy(tow.pos).addScaledVector(up, -BELLY);
       this.cable.visible = this.hook.visible = tow.cable > 0.05;
@@ -248,8 +261,8 @@ export class TowScene {
     const want = tow.carPos.clone().addScaledVector(fwd, -12).addScaledVector(side, 9).addScaledVector(up, 4.5);
     const look = tow.carPos.clone().lerp(tow.pos, 0.5);
     if (!this.camSet) { this.camPos.copy(want); this.camLook.copy(look); this.camSet = true; }
-    const k = 1 - Math.exp(-dt * 2.2);
-    this.camPos.lerp(want, k); this.camLook.lerp(look, 1 - Math.exp(-dt * 5));
+    const k = 1 - Math.exp(-dt * 4);
+    this.camPos.lerp(want, k); this.camLook.lerp(look, 1 - Math.exp(-dt * 8));
     cam.position.copy(this.camPos);
     cam.lookAt(this.camLook);
   }
