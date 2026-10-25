@@ -74,6 +74,10 @@ export const wheelLayout = (c: CarSpec) => [
 /** tyre temperatures (°C): below `cold` a tyre shows blue, above `hot` red (yellow between).
  *  Tyre blankets keep them at `blanket` on the grid, so they start out cold but not frozen */
 export const TYRE = { cold: 55, hot: 100, blanket: 45 };
+/** tyre wear: how fast the tread goes (per second, at full load and racing speed, and extra
+ *  while sliding) and the grip a fully worn tyre has lost. A race of five or more laps wears
+ *  the tyres enough that a pit stop for fresh ones pays */
+export const WEAR = { rate: 0.0016, slide: 0.004, loss: 0.16 };
 
 /** grip multiplier at a tyre temperature: a gentle effect. Tyres colder than the blankets (after a
  *  long cool-down) grip a little less, down to 0.98; overheated ones go off, down to 0.97 */
@@ -116,6 +120,10 @@ export class Car {
   /** tyre temperatures (°C), front left, front right, rear left, rear right: they warm up with
    *  load, sliding, braking and driving, and cool towards the air temperature */
   readonly tyreTemp = [TYRE.blanket, TYRE.blanket, TYRE.blanket, TYRE.blanket];
+  /** tyre wear, 0 (new) .. 1 (worn out): less grip as the tread goes */
+  readonly wear = [0, 0, 0, 0];
+  /** the pit lane speed limiter (m/s): above it the motor cuts and the brakes come on */
+  limit = Infinity;
   private tyreForce = [0, 0, 0, 0];
   abs = true;
   /** crash damage (sim/damage.ts): motor power left, and a steering pull from a bent corner */
@@ -212,6 +220,8 @@ export class Car {
     const { fwd, up, right } = this.axes();
     const lv = b.linvel(), av = b.angvel();
     const vF = lv.x * fwd.x + lv.y * fwd.y + lv.z * fwd.z;
+    // the pit limiter: no drive above the limit, and the brakes bring the car back down to it
+    if (vF > this.limit) inp = { ...inp, throttle: 0, brake: Math.max(inp.brake, Math.min(1, (vF - this.limit) / 4)) };
     const vR = lv.x * right.x + lv.y * right.y + lv.z * right.z;
     const yawRate = av.x * up.x + av.y * up.y + av.z * up.z;
     const speed2 = lv.x * lv.x + lv.y * lv.y + lv.z * lv.z;
@@ -246,7 +256,7 @@ export class Car {
       const front = this.layout[i].front;
       const share = (front ? S.frontDriveShare : 1 - S.frontDriveShare) / 2;
       let f = drive * share;
-      const grip = S.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]) * this.gripMul[i];
+      const grip = S.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]) * this.gripMul[i] * (1 - WEAR.loss * this.wear[i]);
       if (this.tractionControl && f !== 0) f = Math.sign(f) * Math.min(Math.abs(f), grip * load[i] * 0.95);
       // Rapier ignores the brake on a wheel that has engine force, so only one is ever set
       let brake = 0;
@@ -365,6 +375,8 @@ export class Car {
       const hot = 1 + Math.max(0, this.tyreTemp[i] - 90) / 12;
       const cool = (this.tyreTemp[i] - this.ambient) * (TYRE_HEAT.cool + TYRE_HEAT.coolSpeed * Math.abs(vF)) * hot;
       this.tyreTemp[i] += (heat - cool) * dt;
+      // wear: the harder a tyre works at speed, and above all while it slides
+      if (w.contact) this.wear[i] = Math.min(1, this.wear[i] + dt * this.heatMul * (WEAR.rate * work * Math.min(1.5, Math.abs(vF) / 40) + WEAR.slide * w.slip));
     }
   }
 
@@ -389,7 +401,7 @@ export class Car {
   }
 
   /** fresh tyres off the blankets (a new session) */
-  resetTyres() { this.tyreTemp.fill(Math.max(this.ambient, TYRE.blanket)); }
+  resetTyres() { this.tyreTemp.fill(Math.max(this.ambient, TYRE.blanket)); this.wear.fill(0); }
 
   /** consume the impact recorded since the last call */
   takeImpact() { const i = this.impact; this.impact = 0; return i; }

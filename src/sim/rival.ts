@@ -7,6 +7,7 @@ import { steerLockAt, type Car, type CarInputs } from './car';
 import type { JetInputs, Jets } from './jets';
 import type { Track } from './track';
 import type { Canisters } from './canisters';
+import { PIT, laneD, type PitStop } from './pits';
 
 export interface RivalDef {
   name: string;
@@ -78,6 +79,9 @@ export class RivalDriver {
   /** Fun Mode: somewhere on the road to aim for (a ring of fire, an item box) and whether to
    *  jump now; null drives the normal race */
   aim: ((s: number, speed: number) => { s: number; d: number; hop: boolean } | null) | null = null;
+  /** this car's pit stop (set by the race), and whether to come in next time round */
+  pit: PitStop | null = null;
+  wantPit = false;
 
   constructor(readonly def: RivalDef, private track: Track, private line: Float64Array, private profile: Float64Array) {}
 
@@ -96,11 +100,38 @@ export class RivalDriver {
 
   get pace() { return this.def.pace * this.paceMul; }
 
+  /** coming into the pits: where to be across the road and how fast, or null on a normal lap */
+  private pitPath(s: number) {
+    const pit = this.pit, tr = this.track;
+    if (!pit) return null;
+    const going = pit.phase !== 'none' || this.wantPit;
+    if (!going) return null;
+    // the run to the entry: keep to the right
+    if (pit.phase === 'none') {
+      // braking for the entry in time: 26 m/s at the entry, then down to the limit at the wall
+      if (s > tr.total - 220 || s < PIT.entry) return { d: 4.8, v: Math.sqrt(26 ** 2 + 2 * 7 * ((PIT.entry - s + tr.total) % tr.total)) };
+      if (s < PIT.wallFrom) return { d: laneD(s + 14) ?? 4.8, v: 26 - (26 - PIT.limit) * (s - PIT.entry) / (PIT.wallFrom - PIT.entry) };
+      return null;
+    }
+    if (pit.phase === 'service') return { d: PIT.boxD, v: 0 };
+    const lane = laneD(s) ?? PIT.d;
+    const fast = s < PIT.wallFrom || s > PIT.wallTo ? lane : PIT.fast;
+    // (pushed into the lane without meaning to stop: drive through it)
+    if (pit.phase === 'in' && this.wantPit) {
+      const to = pit.boxS - s;
+      // swing into the box over the last 22 m and brake to a stop in it
+      const d = to < 22 && to > -3 ? fast + (PIT.boxD - fast) * Math.min(1, (22 - to) / 14) : fast;
+      return { d, v: Math.min(PIT.limit, Math.sqrt(Math.max(0, 2 * 4.5 * (to - 0.3)))) };
+    }
+    return { d: fast, v: s < PIT.limitTo ? PIT.limit : Infinity };
+  }
+
   drive(me: CarView, others: CarView[], jets: Jets, canisters: Canisters, dt: number, launching: boolean): { inp: CarInputs; jet: JetInputs } {
     const tr = this.track, car = me.car;
     const speed = car.speed;
     const look = 9 + Math.max(0, speed) * 0.42;
     const aggr = this.def.aggression;
+    const pitting = this.pitPath(me.s);
 
     // --- traffic: pick a side to pass, or follow
     let blocked = Infinity, blockerSpeed = 0;
@@ -116,7 +147,7 @@ export class RivalDriver {
         const room = tr.halfWidth - 1.6;
         const passL = o.lateral - 3.2, passR = o.lateral + 3.2;
         const canL = passL > -room, canR = passR < room;
-        if (ds < 28 && speed > o.speed * 0.97 && Math.random() < aggr * 0.9) {
+        if (!pitting && ds < 28 && speed > o.speed * 0.97 && Math.random() < aggr * 0.9) {
           const target = canL && (!canR || Math.abs(passL - myLine) < Math.abs(passR - myLine)) ? passL : canR ? passR : myLine;
           this.laneTarget = target - lineHere;
         }
@@ -127,7 +158,7 @@ export class RivalDriver {
 
     // --- low on air: steer through the next row of canisters that still has some
     let seek: number | null = null;
-    if (blocked > 15 && jets.tank < 0.55) {
+    if (!pitting && blocked > 15 && jets.tank < 0.55) {
       let bestDs = Infinity;
       for (const c of canisters.list) {
         if (c.respawn > 0) continue;
@@ -135,7 +166,7 @@ export class RivalDriver {
         if (ds > 20 && ds < 140 && ds < bestDs) { bestDs = ds; seek = c.d - this.at(this.line, c.s); }
       }
     }
-    const goal = this.aim?.(me.s, speed) ?? null;
+    const goal = pitting ? null : this.aim?.(me.s, speed) ?? null;
     if (goal?.hop) this.hopNext = true;
     if (goal && blocked > 12) seek = goal.d - this.at(this.line, goal.s);
     if (seek !== null) this.laneTarget = seek;
@@ -147,8 +178,11 @@ export class RivalDriver {
     const lim = tr.halfWidth - 1.3;
     let off = Math.max(-lim, Math.min(lim, this.at(this.line, sT) + this.lane));
     if (Math.abs(me.lateral) > tr.halfWidth + 1) off *= 0.3; // off the road: aim for the middle
+    // into the pits: follow the lane instead (looking a short way ahead, it's slow)
+    const pitAhead = pitting ? this.pitPath(me.s + Math.min(look, 6 + speed * 0.3)) : null;
+    if (pitting) off = (pitAhead ?? pitting).d;
     if (this.mistakeLeft > 0) off += Math.sign(off || 1) * 2;
-    const p = tr.pointAt(sT, off);
+    const p = tr.pointAt(pitting ? me.s + Math.min(look, 6 + speed * 0.3) : sT, off);
     const pos = car.body.translation();
     const { fwd, right } = car.axes();
     const dx = p.x - pos.x, dz = p.z - pos.z;
@@ -170,11 +204,12 @@ export class RivalDriver {
       }
       this.sector = sec; this.trouble = false;
     }
-    if (Math.abs(car.vLat) > 2.6 || Math.abs(me.lateral) > tr.halfWidth + 0.5) this.trouble = true;
+    if (!pitting && (Math.abs(car.vLat) > 2.6 || Math.abs(me.lateral) > tr.halfWidth + 0.5)) this.trouble = true;
     const sAhead = me.s + 5 + speed * 0.2;
     const secAhead = Math.floor(((sAhead % tr.total) / tr.total) * SECTORS + SECTORS) % SECTORS;
     let vT = this.at(this.profile, sAhead) * this.pace * this.learned[secAhead];
     if (this.mistakeLeft > 0) vT *= 1.07; // braking too late
+    if (pitting) vT = Math.min(vT, pitting.v);
     if (blocked < 18) vT = Math.min(vT, blockerSpeed + (blocked - 8) * 0.6);
     let throttle = 0, brake = 0;
     const err = vT - speed;
@@ -186,7 +221,7 @@ export class RivalDriver {
 
     // --- mistakes: now and then, a corner taken too fast and wide
     const ci = Math.floor(me.s / 120);
-    if (ci !== this.mistakeCorner) {
+    if (ci !== this.mistakeCorner && !pitting) {
       this.mistakeCorner = ci;
       if (Math.random() < 0.06 * (1.4 - this.def.consistency)) this.mistakeLeft = 1.4;
     }
@@ -196,12 +231,12 @@ export class RivalDriver {
     if (launching) this.boostHold = Math.random() < 0.4 + aggr * 0.5 ? 1.5 : 0;
     else if (this.boostHold <= 0 && throttle > 0.95 && blocked > 25 && jets.tank > 0.2 + (1 - aggr) * 0.25
       && this.straightAhead(me.s, Math.max(45, speed * 1.3), speed)) this.boostHold = 0.6 + aggr * 1.2;
-    if (brake > 0 || blocked < 15) this.boostHold = 0;
+    if (brake > 0 || blocked < 15 || pitting) this.boostHold = 0;
     this.boostHold -= dt;
     const hop = this.hopNext; this.hopNext = false;
 
     // --- recovery
-    if (speed < 2 && !launching) this.stuckTime += dt; else this.stuckTime = 0;
+    if (speed < 2 && !launching && !this.pit?.holding) this.stuckTime += dt; else this.stuckTime = 0;
     if (this.stuckTime > 3) { this.needsReset = true; this.stuckTime = 0; }
 
     return {

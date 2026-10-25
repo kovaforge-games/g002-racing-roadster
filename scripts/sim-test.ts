@@ -23,6 +23,7 @@ import { Tow, TOW } from '../src/sim/tow';
 import * as THREE from 'three';
 import { Fun, FUN_DEFAULTS } from '../src/sim/fun';
 import { racingLine } from '../src/sim/racingLine';
+import { PIT } from '../src/sim/pits';
 
 await initPhysics();
 // the bots roll dice (mistakes, passing, boosting): seed them so every run of this test is the same
@@ -334,6 +335,37 @@ function runRace(opts: RaceOptions) {
     check(race.allFinished && race.rivals.reduce((a, e) => a + e.resets, 0) <= 2, `${id}: everyone finishes, at most 2 bot resets`);
   }
   check(CAREER.every((id, k) => k === 0 || laps[id]! < laps[CAREER[k - 1]]! - 2), 'each career car laps at least 2 s quicker than the one before');
+}
+
+// ---- pit stops: in a long race every bot stops once (fresh tyres, a full tank), keeps to the
+// pit lane speed limit and rejoins; the tyres wear enough over the race that the stop pays
+{
+  console.log('pit stops:');
+  const world = buildWorld(track, terrain), canisters = new Canisters(track);
+  const car = new Car(world, 0, 0, 0, 0, CLASSES.model3.spec), jets = new Jets();
+  const race = new Race(track, world, canisters, car, jets, { opponents: 5, laps: 5, difficulty: 'expert', cls: 'model3' });
+  const pilot = new Autopilot(track);
+  pilot.keyboard = true; pilot.aggression = 1.06;
+  const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
+  for (let k = 0; k < 240; k++) { car.step(hold); race.stepRivals(); world.step(); race.afterStep(); }
+  race.go();
+  let t = 0, fastest = 0, wearBefore = 0;
+  const done: string[] = [];
+  race.onPit = (e, ev) => { if (ev === 'stopped') wearBefore = Math.max(wearBefore, e.car.wear[0]); if (ev === 'done') done.push(e.name); };
+  while (t < 150 * race.laps && !race.allFinished) {
+    const p = race.player;
+    updateSurface(car, track, p.hint);
+    car.step(applyDrivingHelp('easy', pilot.drive(car, p.hint, p.s, dt), car));
+    race.stepRivals(); world.step(); canisters.step(dt); race.afterStep(); t += dt;
+    for (const e of race.rivals) if (e.pit.phase === 'in' || e.pit.phase === 'out') if (e.s > PIT.limitFrom + 15 && e.s < PIT.limitTo) fastest = Math.max(fastest, e.car.speed);
+  }
+  const rivals = race.rivals;
+  console.log(`  stops ${rivals.map(e => `${e.name.split(' ')[0]} lap ${e.pitLap}: ${e.pit.stops} (${e.pit.laneTime.toFixed(1)} s in the lane)`).join(', ')}; fastest in the limit zone ${kmh(fastest)} km/h; your tyres ${(race.player.car.wear[0] * 100).toFixed(0)}% worn after 5 laps`);
+  check(rivals.every(e => e.pit.stops === 1 && e.finished) && rivals.reduce((a, e) => a + e.resets, 0) <= 2, 'every bot stops once in a 5 lap race and finishes');
+  check(done.length === rivals.length && wearBefore > 0.15 && rivals.every(e => e.car.wear[0] < race.player.car.wear[0]), 'a stop fits fresh tyres');
+  check(fastest < PIT.limit + 1.5, 'the pit lane speed limit holds');
+  check(race.player.car.wear[0] > 0.35 && race.player.car.wear[0] < 0.8, 'five laps wear the tyres enough to make a stop pay');
+  world.free();
 }
 
 // ---- championship scoring

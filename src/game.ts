@@ -12,11 +12,13 @@ import { updateSurface } from './sim/surface';
 import { Autopilot } from './sim/autopilot';
 import { Jets, type JetEvent } from './sim/jets';
 import { Canisters, CANISTER_AIR } from './sim/canisters';
-import { Race, type Entrant } from './sim/race';
+import { MAX_OPPONENTS, Race, type Entrant } from './sim/race';
 import { Renderer, type GraphicsSettings } from './render/renderer';
 import type { Quality } from './render/graphics';
 import { Environment, type TimeOfDay } from './render/environment';
 import { TrackScene } from './render/trackScene';
+import { PitScene } from './render/pitScene';
+import { PIT } from './sim/pits';
 import { CarModel, PAINTS } from './render/carModel';
 import { buildModel, type BodyModel } from './render/models';
 import { CLASSES, type ClassId } from './sim/classes';
@@ -170,6 +172,9 @@ export class Game implements PartyGame, MenuGame {
   /** the flying tow, while it's on its way, carrying the car or flying off */
   tow: Tow | null = null;
   private towScene!: TowScene;
+  private pitScene!: PitScene;
+  /** a moment of GO! after the crew finish */
+  private pitGo = 0;
   private towEvents: TowEvent[] = [];
   // Fun Mode: the course, its rules for every car, and what it looks like
   fun: Fun | null = null;
@@ -242,6 +247,8 @@ export class Game implements PartyGame, MenuGame {
     this.scene.add(this.gates.group);
     this.scene.add(this.trackScene.group, this.canisterScene.group, this.skids.mesh, this.vapour.points);
     this.towScene = new TowScene(this.roadModel, this.vapour, quality);
+    this.pitScene = new PitScene(this.track, MAX_OPPONENTS + 1, quality);
+    this.scene.add(this.pitScene.group);
     this.scene.add(this.damageFx.group, this.towScene.group);
     this.scene.add(new Trackside(this.track).group, this.sparks.points, this.smoke.points);
     this.touch.onItem = () => this.useItem();
@@ -365,6 +372,8 @@ export class Game implements PartyGame, MenuGame {
     const s = this.current, w = this.weekend;
     const grid = w?.stage === 'race' ? w.quali?.map(r => r.name) : undefined;
     this.race = new Race(this.track, this.world, this.canisters, this.car, this.jets, { opponents: s.opponents, laps: s.laps, difficulty: s.difficulty, cls: this.cls, grid });
+    this.race.damageOf = e => e.driver ? this.rivals.find(r => r.e === e)?.damage.worst ?? 0 : this.damage.worst;
+    this.race.onPit = (e, ev) => this.pitEvent(e, ev);
     // the rivals are copies of the player's model, so copy it as new
     this.repairCar();
     for (const e of this.race.rivals) {
@@ -949,6 +958,35 @@ export class Game implements PartyGame, MenuGame {
   // ---- crash damage and the flying tow
 
   /** good as new: no damage, no dents */
+  /** a car stopped in its box, finished its stop or left the lane: the player's stop repairs the
+   *  car (the race fits the tyres and fills the tank), a bot's stop fixes its dents */
+  private pitEvent(e: Entrant, ev: 'stopped' | 'done' | 'exit') {
+    if (e.driver) {
+      if (ev === 'done') { const v = this.rivals.find(r => r.e === e); v?.damage.repair(); v?.dents.repair(); }
+      return;
+    }
+    if (ev === 'stopped') { this.hud.message('Box, box! The crew are on it', 1.6); audio.impact(3); }
+    else if (ev === 'done') { this.repairCar(); this.pitGo = 1.2; audio.whoosh(); this.hud.message('GO GO GO!', 1.2); }
+    else this.hud.message('Pit exit: back up to speed', 1.4);
+  }
+
+  /** the HUD and the crews: the limiter, how the stop is going, and which boxes are busy */
+  private pitFrame(dt: number) {
+    const r = this.race;
+    this.pitGo = Math.max(0, this.pitGo - dt);
+    const service: (number | null)[] = [];
+    for (const e of r?.entrants ?? []) {
+      const p = e.pit;
+      service[p.box] = p.phase === 'service' ? 1 - p.left / p.total : p.phase === 'out' && Math.abs(e.s - p.boxS) < 8 ? 1 : null;
+    }
+    this.pitScene.update(dt, service);
+    const me = r?.player.pit;
+    const stop = me && (me.phase === 'service' || this.pitGo > 0)
+      ? { done: me.phase === 'service' ? 1 - me.left / me.total : 1, go: me.phase !== 'service', jobs: ['Fresh tyres', 'Air topped up', ...(me.total > PIT.tyres + 0.1 ? ['Bodywork fixed'] : [])] }
+      : null;
+    this.hud.setPit(this.car.limit < Infinity, stop);
+  }
+
   private repairCar() {
     this.damage.repair(); this.dents?.repair(); this.wreckT = 0;
     this.damageHud?.update(this.damage);
@@ -1102,6 +1140,11 @@ export class Game implements PartyGame, MenuGame {
     const moving = this.phase === 'driving' || this.phase === 'finished';
     if (this.pilot && moving) inp = { ...this.pilot.drive(this.car, near.i, near.s, dt), lookBack: false, boost: false, hop: false, hover: false, side: 0, sidePress: 0, pitch: 0 };
     if (!moving) inp = { steer: 0, throttle: 0, brake: 0, handbrake: true, lookBack: false, boost: false, hop: false, hover: false, side: 0, sidePress: 0, pitch: 0 };
+    // in the box: the crew have the car up on the jacks until the stop is done
+    if (this.race?.player.pit.holding) {
+      inp = { steer: 0, throttle: 0, brake: 1, handbrake: true, lookBack: inp.lookBack, boost: false, hop: false, hover: false, side: 0, sidePress: 0, pitch: 0 };
+      this.car.body.setLinvel({ x: 0, y: Math.min(0, this.car.body.linvel().y), z: 0 }, true); this.car.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
     // while the tow has the car, it goes where the tow takes it
     const held = this.tow ? this.stepTow(dt) : false;
     if (!held) {
@@ -1229,6 +1272,7 @@ export class Game implements PartyGame, MenuGame {
     this.canisterScene.update(dt);
     this.effects(dt);
     if (this.fun) this.funFrame(dt);
+    this.pitFrame(dt);
     if (this.frameHop || this.frameEvents.includes('dodge')) audio.hop();
     if (this.frameAir > 0) { audio.pickup(); this.hud.airGained(this.frameAir); }
     for (const ev of this.frameEvents) { const m = JET_MESSAGES[ev]; if (m) this.hud.message(m[0], m[1]); }
@@ -1292,7 +1336,7 @@ export class Game implements PartyGame, MenuGame {
       speed: this.car.speed, powerKw: this.car.powerKw, lap: this.lap,
       current: this.lapStart !== null ? this.simTime - this.lapStart : null, last: this.lastLap, best: this.bestLap,
       x: focus.x, z: focus.z, heading: e.y, help: HELP_LABEL[this.help], paint: garage.paint < 0 ? 'Custom paint' : this.model.paintName,
-      steer: this.inp.steer, gear, rpm: this.car.motorRpm, tyres: this.car.tyreTemp,
+      steer: this.inp.steer, gear, rpm: this.car.motorRpm, tyres: this.car.tyreTemp, wear: this.car.wear.reduce((a, w) => a + w, 0) / 4,
       others: [...this.rivals.map(r => ({ x: r.model.root.position.x, z: r.model.root.position.z, color: css(PAINTS[r.e.paint].color) })), ...friends],
     });
     if (this.test) {

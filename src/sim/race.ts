@@ -12,6 +12,7 @@ import { applyDrivingHelp } from './assist';
 import { CANISTER_AIR, type Canisters } from './canisters';
 import type { Track } from './track';
 import { PHYSICS_DT } from './world';
+import { PitStop, freshTyres } from './pits';
 
 export const RACE_LAPS = 3;
 export const MAX_OPPONENTS = RIVALS.length;
@@ -55,6 +56,9 @@ export interface Entrant extends CarView {
   braking: boolean;
   /** seconds left of being hit by someone's jet wash, for a message */
   washed: number;
+  /** the pit stop (the box matches the grid slot), and the lap a bot plans to stop on */
+  pit: PitStop;
+  pitLap: number | null;
 }
 
 export class Race {
@@ -71,6 +75,10 @@ export class Race {
   /** called for each rival after its car and jets step, before the world steps (Fun Mode adds
    *  its boosts and spin-outs here) */
   onRivalStep: ((e: Entrant, dt: number) => void) | null = null;
+  /** how damaged a car is (0..1, from the game's crash damage): a badly damaged bot pits */
+  damageOf: (e: Entrant) => number = () => 0;
+  /** a car stopped in its box, finished its stop, or left the pit lane */
+  onPit: ((e: Entrant, ev: 'stopped' | 'done' | 'exit') => void) | null = null;
   private line: Float64Array;
   private profile: Float64Array;
 
@@ -85,6 +93,7 @@ export class Race {
     const blank = (name: string, car: Car, jets: Jets, driver: RivalDriver | null, paint: number, number = 0): Entrant => ({
       name, car, jets, driver, paint, number, s: 0, lateral: 0, speed: 0, hint: -1, lap: 0, passedHalf: false, prevS: 0,
       dist: 0, pos: 0, finished: false, finishTime: null, estimated: false, lapStart: null, bestLap: null, flipT: 0, gotAir: 0, resets: 0, braking: false, washed: 0,
+      pit: new PitStop(0), pitLap: null,
     });
     this.player = blank('You', playerCar, playerJets, null, 0);
     for (let k = 0; k < rivals; k++) {
@@ -114,6 +123,10 @@ export class Race {
       e.s = e.prevS = this.track.nearest(p.x, p.z).s;
       e.lap = 0; e.passedHalf = false; e.finished = false; e.finishTime = null; e.estimated = false; e.lapStart = null; e.bestLap = null;
       e.flipT = 0; e.dist = 0; e.pos = k + 1; e.resets = 0;
+      // each car's box is its grid slot; in a long race every bot plans one stop around half way
+      e.pit = new PitStop(k); e.car.limit = Infinity;
+      e.pitLap = e.driver && this.laps >= 4 ? Math.max(2, Math.min(this.laps - 1, Math.ceil(this.laps / 2) + (k % 3))) : null;
+      if (e.driver) { e.driver.pit = e.pit; e.driver.wantPit = false; }
     });
     this.time = 0; this.running = false;
   }
@@ -130,11 +143,15 @@ export class Race {
     for (const e of this.entrants) {
       if (!e.driver) continue;
       updateSurface(e.car, this.track, e.hint);
-      if (!this.running) {
-        const hold = { steer: 0, throttle: 0, brake: 0, handbrake: true };
+      if (!this.running || e.pit.holding) {
+        const hold = { steer: 0, throttle: 0, brake: e.pit.holding ? 1 : 0, handbrake: true };
+        if (e.pit.holding) { e.car.body.setLinvel({ x: 0, y: Math.min(0, e.car.body.linvel().y), z: 0 }, true); e.car.body.setAngvel({ x: 0, y: 0, z: 0 }, true); }
         e.car.step(hold); e.jets.step(e.car, hold, { boost: false, hop: false, airRoll: false }, dt);
         continue;
       }
+      // come in this time round? on the planned lap, or with a badly damaged car
+      const next = e.s > this.track.total / 2 ? e.lap + 1 : e.lap;
+      e.driver.wantPit = !e.finished && next <= this.laps && ((next === e.pitLap && e.pit.stops === 0) || (this.damageOf(e) > 0.55 && e.pit.stops < 2));
       const others = this.entrants.filter(o => o !== e);
       const { inp, jet } = e.driver.drive(e, others, e.jets, this.canisters, dt, launching);
       const assisted = applyDrivingHelp('medium', inp, e.car);
@@ -178,6 +195,12 @@ export class Race {
       e.hint = near.i; e.s = near.s; e.lateral = near.lateral; e.speed = e.car.speed;
       e.gotAir = 0;
       e.washed = Math.max(0, e.washed - dt);
+      // the pit lane: the limiter, the stop in the box and the way out
+      if (this.running || !e.driver) {
+        const ev = e.pit.update(e.car, near.s, near.lateral, this.time, dt, this.damageOf(e));
+        if (ev === 'done') { freshTyres(e.car); e.jets.refill(1); }
+        if (ev) this.onPit?.(e, ev);
+      }
       if (e.driver) {
         const got = this.canisters.collect(pos.x, pos.y, pos.z);
         if (got) { e.jets.refill(got * CANISTER_AIR); e.gotAir = got * CANISTER_AIR; }

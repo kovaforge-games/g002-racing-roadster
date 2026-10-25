@@ -1,6 +1,7 @@
-// What each tyre is on: tarmac, kerb or grass. Grass has less grip and much more drag.
+// What each tyre is on: tarmac (the road and the pit lane), kerb or grass. Grass has less grip and much more drag.
 import { wheelLayout, type Car } from './car';
 import type { Track } from './track';
+import { onPitLane } from './pits';
 
 export const GRASS_GRIP = 0.65;
 const KERB_WIDTH = 1.25;
@@ -17,7 +18,7 @@ export function updateSurface(car: Car, track: Track, hint: number) {
     const d = Math.abs(near.lateral);
     const onKerb = track.kerb[near.i] && d > track.halfWidth - 0.1 && d < track.halfWidth + KERB_WIDTH;
     if (onKerb) kerb += 0.25;
-    car.surface[i] = d < track.halfWidth + (track.kerb[near.i] ? KERB_WIDTH : 0.4) ? 1 : GRASS_GRIP;
+    car.surface[i] = d < track.halfWidth + (track.kerb[near.i] ? KERB_WIDTH : 0.4) || onPitLane(near.s, near.lateral) ? 1 : GRASS_GRIP;
   });
   return kerb;
 }

@@ -1,5 +1,5 @@
 // Drives the real game in headless Chromium: home screen, race setup, countdown, keyboard driving,
-// the race field, the pause menu, boost, jump and hover, the iPad controls, the autopilot demo, the career modes (licenses, race weekend, a single-seater race), the Garage and Fun Mode. Saves screenshots to test-results/ and fails on page errors or if the car
+// the race field, the pause menu, boost, jump and hover, the iPad controls, the autopilot demo, the career modes (licenses, race weekend, a Model S race), the Garage and Fun Mode. Saves screenshots to test-results/ and fails on page errors or if the car
 // doesn't move.   node scripts/browser-test.mjs [url]   (start `npm run dev` or `npm run preview` first)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
@@ -127,7 +127,7 @@ await page.close();
   await tp.close();
 }
 
-// career: locked cars and championships, a license test, a race weekend, and a single-seater race
+// career: locked cars and championships, a license test, a race weekend, and a Model S race
 {
   const cp = await browser.newPage({ viewport: { width: 1100, height: 620 } });
   cp.on('pageerror', e => errors.push(e.message));
@@ -139,8 +139,8 @@ await page.close();
   await cp.click('.tile-licenses');
   check(await cp.locator('.test-btn:not([disabled])').count() === 5, 'licenses: the five National B tests are open, the rest locked');
   await cp.click('.test-btn >> nth=0'); await cp.click('button.start');
-  await cp.waitForFunction(() => window.__game.test && window.__game.cls === '0x1.5' && !document.querySelector('.testpanel').classList.contains('hidden'), null, { timeout: 30000 });
-  check(true, 'license test: in the 0x1.5 with the test clock showing');
+  await cp.waitForFunction(() => window.__game.test && window.__game.cls === 'model3' && !document.querySelector('.testpanel').classList.contains('hidden'), null, { timeout: 30000 });
+  check(true, 'license test: in the Model 3 with the test clock showing');
   await cp.waitForFunction(() => window.__game.phase === 'driving', null, { timeout: 60000 });
   await cp.keyboard.press('KeyR');
   check(await cp.waitForFunction(() => /TEST FAILED/.test(document.querySelector('.overlay.results')?.textContent ?? ''), null, { timeout: 10000 }).then(() => true, () => false), 'license test: a reset fails the test');
@@ -164,13 +164,13 @@ await page.close();
   await up.goto(url + quality + '&unlock', { waitUntil: 'load' });
   await up.waitForFunction(() => window.__game, null, { timeout: 90000 });
   await up.click('.tile-quick', { timeout: 90000 });
-  await up.click('button.seg-btn:has-text("0x3.5")');
+  await up.click('button.seg-btn:has-text("Model S")');
   await up.click('button.start');
   await up.waitForFunction(() => window.__game.phase === 'driving', null, { timeout: 90000 });
   await up.keyboard.down('ArrowUp');
-  await up.waitForFunction(() => window.__game.car.gear >= 2, null, { timeout: 60000 }).catch(() => {});
-  check(await up.evaluate(() => window.__game.race.entrants.every(e => e.car.spec.gears === 8) && window.__game.car.gear >= 2), '0x3.5 race: every car is a 0x3.5 and the gearbox shifts');
-  await up.screenshot({ path: 'test-results/10-0x3.5.png' });
+  await up.waitForFunction(() => window.__game.car.speed > 15, null, { timeout: 60000 }).catch(() => {});
+  check(await up.evaluate(() => window.__game.cls === 'models' && window.__game.race.entrants.every(e => e.car.spec.topSpeed === window.__game.car.spec.topSpeed) && window.__game.car.speed > 15), 'Model S race: every car is a Model S and it drives');
+  await up.screenshot({ path: 'test-results/10-models.png' });
   await up.close();
 }
 
