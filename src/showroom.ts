@@ -30,7 +30,7 @@ export class Showroom {
     gl.toneMapping = THREE.NeutralToneMapping;
     gl.toneMappingExposure = 0.85;
     gl.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.setBloom(0.12, 2.4);
+    this.renderer.setBloom(0.05, 3);
 
     // studio: soft boxes for reflections, a dark graded backdrop, a glossy floor
     const pm = new THREE.PMREMGenerator(gl);
@@ -51,7 +51,7 @@ export class Showroom {
     this.scene.add(this.turntable);
 
     // key light from above for crisp contact shadows, plus a cool rim and a warm fill
-    const key = new THREE.DirectionalLight(0xffffff, 1.8);
+    const key = new THREE.DirectionalLight(0xffffff, 1.35);
     key.position.set(3, 9, 4); key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     Object.assign(key.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 24 });

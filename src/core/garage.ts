@@ -51,7 +51,7 @@ export const GLOWS: [Glow, string, number][] = [['off', 'Off', 0], ['cyan', 'Cya
 export const PLAYER_NUMBER = 12;
 const DEFAULT: GarageConfig = {
   paint: 0, custom: '#e10600', finish: 'factory', pattern: 'solid', second: '#111214', number: PLAYER_NUMBER, showNumber: true,
-  rims: 'aero', rimColor: '#0e0f11', wing: 'active', tyres: 'road', glass: 'gold', glow: 'off',
+  rims: 'aero', rimColor: '#0e0f11', wing: 'active', tyres: 'road', glass: 'smoke', glow: 'off',
 };
 const KEY = 'rd-garage';
 

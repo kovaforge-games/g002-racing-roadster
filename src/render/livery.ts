@@ -33,15 +33,6 @@ export interface LiveryShape {
   hood: [number, number] | null;
 }
 
-export const ROADSTER_SHAPE: LiveryShape = {
-  front: 2.2, rear: -2.2, stripe: [0.09, 0.27], side: [0.47, 0.6, 0.035], split: [0.71, 0.9], flames: [0.32, 0.86, 0.95],
-  door: [0.04, 0.52, 0.46], hood: [1.42, 0.5],
-};
-export const OPEN_WHEEL_SHAPE: LiveryShape = {
-  front: 2.62, rear: -2.05, stripe: [0.03, 0.09], side: [0.36, 0.42, 0.03], split: [0.42, 0.52], flames: [0.2, 0.62, 0.4],
-  door: null, hood: null,
-};
-
 /** the number in a white roundel with a black ring, for the shader to sample */
 function roundel(n: number) {
   const c = document.createElement('canvas'); c.width = c.height = 256;
