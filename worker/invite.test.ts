@@ -2,11 +2,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from './index';
+import { HUB_RECHECK_MS } from './invite';
 
 const CODE = 'test-invite-code-123';
 let calls: string[] = [];
-const env = (code: string | null = CODE) => ({
-  INVITE_CODE: code ?? undefined,
+// the kovaforge-home hub: "<link>:<invite>" for every live /games invite link
+const live = new Set<string>();
+let hubCalls = 0;
+const HUB = {
+  fetch: async (u: string) => {
+    hubCalls++;
+    const url = new URL(u), m = /^\/home-api\/games\/g002\/invites\/([^/]+)$/.exec(url.pathname);
+    return new Response(null, { status: url.hostname === 'kovaforge.org' && m && live.has(`${url.searchParams.get('link')}:${m[1]}`) ? 200 : 404 });
+  },
+};
+const env = (code: string | null = CODE, hub: unknown = HUB) => ({
+  INVITE_CODE: code ?? undefined, HUB: hub,
   ASSETS: { fetch: async (r: Request) => { calls.push(new URL(r.url).pathname); return new Response('<title>game</title>', { headers: { 'Content-Type': 'text/html' } }); } },
   PARTY: { idFromName: () => { calls.push('DO'); return {}; }, get: () => ({ fetch: async () => new Response('do') }) },
 }) as any;
@@ -178,7 +189,7 @@ test('the guest cookie lasts as long as the pass', async () => {
 
 test('a pass only works for its own party, and forged passes are a 404', async () => {
   const pass = await passFor('482913');
-  for (const q of [`code=111111&pass=${pass}`, `pass=${pass}`, `code=482913&pass=${pass.slice(0, -1)}A`, 'code=482913&pass=zzzzzz.AAAAAAAAAAAAAAAAAAAAAA', 'code=482913&pass=']) {
+  for (const q of [`code=111111&pass=${pass}`, `pass=${pass}`, `code=482913&pass=${pass.slice(0, -1)}${pass.endsWith('A') ? 'Q' : 'A'}`, 'code=482913&pass=zzzzzz.AAAAAAAAAAAAAAAAAAAAAA', 'code=482913&pass=']) {
     const r = await go(`https://kovaforge.org/games/g002/?${q}`);
     assert.equal(r.status, 404, q);
     assert.equal(r.headers.get('Set-Cookie'), null, q);
@@ -221,4 +232,97 @@ test('rotating INVITE_CODE invalidates passes and guest cookies', async () => {
   const guest = (await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`)).headers.get('Set-Cookie')!.split(';')[0];
   assert.equal((await go(`https://kovaforge.org/games/g002/?code=482913&pass=${pass}`, env('rotated-code-456'))).status, 404);
   assert.equal((await go('https://kovaforge.org/games/g002/', env('rotated-code-456'), { Cookie: guest })).status, 404);
+});
+
+// Hub invites: each one made on kovaforge.org/games has a kovaforge.org link and a workers.dev link
+const fresh = () => crypto.randomUUID().replace(/-/g, '').slice(0, 22);
+const invite = (links = ['workers', 'kovaforge']) => { const c = fresh(); for (const l of links) live.add(`${l}:${c}`); return c; };
+const HOSTS = [
+  { start: 'https://g002-roadster.kovaforge.workers.dev/', path: '/' },
+  { start: 'https://kovaforge.org/games/g002/', path: '/games/g002' },
+];
+
+for (const { start, path } of HOSTS) {
+  test(`${start}<invite> sets a cookie for this link and opens the game`, async () => {
+    const c = invite();
+    const r = await go(`${start}${c}?x=1`);
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.get('Location'), `${start}?x=1`);
+    const sc = r.headers.get('Set-Cookie') ?? '';
+    assert.match(sc, /^kf_g002_invite=/);
+    assert.match(sc, /HttpOnly/); assert.match(sc, /Secure/); assert.match(sc, /Max-Age=2592000/);
+    assert.ok(sc.includes(`Path=${path};`), sc);
+    const { r: page, jar } = await browse(`${start}${c}`);
+    assert.equal(page.status, 200);
+    assert.notEqual((await go(start + 'ws?code=123456', env(), { Upgrade: 'websocket', Cookie: jar[0].pair })).status, 404);
+  });
+
+  test(`${start}<unknown invite> is a 404 with no cookie`, async () => {
+    const r = await go(`${start}${fresh()}`);
+    assert.equal(r.status, 404);
+    assert.equal(r.headers.get('Set-Cookie'), null);
+  });
+}
+
+test('the no-slash kovaforge.org address takes an invite too', async () => {
+  const c = invite();
+  const { r, url } = await browse(`https://kovaforge.org/games/g002/${c}`);
+  assert.equal(r.status, 200);
+  assert.equal(url, 'https://kovaforge.org/games/g002/');
+});
+
+test('Revoke (workers.dev only) shuts the workers.dev link and its cookie, the kovaforge.org link keeps working', async () => {
+  const c = invite();
+  const workers = (await go(`https://g002-roadster.kovaforge.workers.dev/${c}`)).headers.get('Set-Cookie')!.split(';')[0];
+  const kova = (await go(`https://kovaforge.org/games/g002/${c}`)).headers.get('Set-Cookie')!.split(';')[0];
+  live.delete(`workers:${c}`);
+  assert.equal((await go(`https://g002-roadster.kovaforge.workers.dev/${c}`)).status, 404, 'new opens stop at once');
+  const now = Date.now;
+  Date.now = () => now() + HUB_RECHECK_MS + 1000;
+  try {
+    assert.equal((await go('https://g002-roadster.kovaforge.workers.dev/', env(), { Cookie: workers })).status, 404);
+    assert.equal((await go('https://kovaforge.org/games/g002/', env(), { Cookie: kova })).status, 200);
+    live.delete(`kovaforge:${c}`); // Revoke Links
+    assert.equal((await go(`https://kovaforge.org/games/g002/${c}`)).status, 404);
+  } finally { Date.now = now; }
+  Date.now = () => now() + 2 * (HUB_RECHECK_MS + 1000);
+  try {
+    assert.equal((await go('https://kovaforge.org/games/g002/', env(), { Cookie: kova })).status, 404);
+  } finally { Date.now = now; }
+});
+
+test('the hub is asked at most once a minute while a cookie is in use', async () => {
+  const c = invite();
+  const kova = (await go(`https://kovaforge.org/games/g002/${c}`)).headers.get('Set-Cookie')!.split(';')[0];
+  hubCalls = 0;
+  for (let i = 0; i < 5; i++) assert.equal((await go('https://kovaforge.org/games/g002/', env(), { Cookie: kova })).status, 200);
+  assert.equal(hubCalls, 0);
+});
+
+test('a link cookie only works on its own address, and forged ones never reach the hub', async () => {
+  const c = invite();
+  const workers = (await go(`https://g002-roadster.kovaforge.workers.dev/${c}`)).headers.get('Set-Cookie')!.split(';')[0];
+  assert.equal((await go('https://kovaforge.org/games/g002/', env(), { Cookie: workers })).status, 404);
+  hubCalls = 0;
+  const forged = `kf_g002_invite=${c}.${'0'.repeat(64)}`;
+  assert.equal((await go('https://kovaforge.org/games/g002/', env(), { Cookie: forged })).status, 404);
+  assert.equal(hubCalls, 0);
+  // signed with an old INVITE_CODE: rotating it logs hub invites out too
+  const kova = (await go(`https://kovaforge.org/games/g002/${c}`)).headers.get('Set-Cookie')!.split(';')[0];
+  assert.equal((await go('https://kovaforge.org/games/g002/', env('rotated-code-456'), { Cookie: kova })).status, 404);
+});
+
+test('without the HUB binding, or when the hub fails, invite links are a 404', async () => {
+  const c = invite();
+  assert.equal((await go(`https://kovaforge.org/games/g002/${c}`, env(CODE, null))).status, 404);
+  const broken = { fetch: async () => { throw new Error('down'); } };
+  assert.equal((await go(`https://kovaforge.org/games/g002/${c}`, env(CODE, broken))).status, 404);
+  assert.equal((await go(`https://kovaforge.org/games/g002/${c}`, env(null))).status, 404); // still fails closed with no INVITE_CODE
+});
+
+test('a hub invite cookie can make party passes', async () => {
+  const c = invite();
+  const kova = (await go(`https://kovaforge.org/games/g002/${c}`)).headers.get('Set-Cookie')!.split(';')[0];
+  const r = await go('https://kovaforge.org/games/g002/party-pass?code=123456', env(), { Cookie: kova });
+  assert.equal(r.status, 200);
 });

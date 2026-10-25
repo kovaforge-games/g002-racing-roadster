@@ -13,6 +13,8 @@
   ],
   "workers_dev": true,
   "preview_urls": false,
+  // the invite gate asks the kovaforge-home hub whether a /games invite link is still live (worker/invite.ts)
+  "services": [{ "binding": "HUB", "service": "kovaforge-home" }],
   // one Durable Object per multiplayer party (see worker/index.ts)
   "durable_objects": { "bindings": [{ "name": "PARTY", "class_name": "PartyRoom" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PartyRoom"] }]
