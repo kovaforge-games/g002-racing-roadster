@@ -38,6 +38,7 @@ import { NameTag } from './render/nameTag';
 import { RemoteCars, paintCss } from './render/remoteCars';
 import { input, type DriveInput } from './core/input';
 import { audio } from './core/audio';
+import { Commentator, CARS_PLURAL, voicePhrases, type CommentEvent } from './core/commentary';
 import { Hud, formatTime } from './ui/hud';
 import { PartyUi, type PartyGame } from './ui/partyUi';
 import { Menu, type MenuGame } from './ui/menu';
@@ -135,6 +136,18 @@ export class Game implements PartyGame, MenuGame {
   /** null in practice, time trial and party races */
   race: Race | null;
   session: SessionMode = 'race';
+  /** the race commentator: captions on the HUD, the recorded voice, the crowd */
+  private commentator = new Commentator({
+    caption: t => this.hud.say(t),
+    speakClips: (t, e) => audio.speakClips(t, e),
+    speak: (t, e) => audio.speak(t, e),
+    cheer: sec => { audio.cheer(sec); this.trackScene.cheer(sec); },
+  });
+  /** the crew have called you in for tyres this stint */
+  private boxCalled = false;
+  private pitPhase = 'none';
+  /** the fastest lap of the race so far, for the commentary */
+  private raceFastest = Infinity;
   /** the setup the current session was started with (Restart uses it again) */
   private current: RaceSetup = { ...setup };
   /** the championship this race is a round of */
@@ -302,6 +315,13 @@ export class Game implements PartyGame, MenuGame {
     this.setPaint(paint);
     this.applyGarageLook();
     this.scene.add(this.model.root);
+    // the cameras sit further back and higher behind a long or tall car (the Semi, the Cybertruck)
+    const root = this.model.root, p = root.position.clone(), q = root.quaternion.clone();
+    root.position.set(0, 0, 0); root.quaternion.identity(); root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(this.model.bodyShell);
+    root.position.copy(p); root.quaternion.copy(q); root.updateMatrixWorld(true);
+    this.rig.size = { length: Math.max(1, (box.max.z - box.min.z) / 4.4), height: Math.max(1, (box.max.y - box.min.y) / 1.2) };
+    this.rig.reset();
   }
 
   /** the physics car for a class, with the garage's wing and tyres fitted */
@@ -525,6 +545,13 @@ export class Game implements PartyGame, MenuGame {
     this.lightsT = 0;
     this.rig.reset();
     this.hud.setLights(1); this.trackScene.setStartLights(1);
+    this.commentator.reset(); this.hud.hideCaption();
+    this.boxCalled = false; this.raceFastest = Infinity;
+    if (this.commentating) {
+      const r = this.race!;
+      void audio.preloadClips([...voicePhrases(), ...r.entrants.map(e => e.name), CARS_PLURAL[this.cls]]);
+      this.commentator.say(this.fun ? 'funIntro' : 'intro', { n: r.entrants.length, cars: CARS_PLURAL[this.cls] });
+    }
   }
 
   /** let every car settle on its springs, then take fresh interpolation snapshots */
@@ -593,6 +620,7 @@ export class Game implements PartyGame, MenuGame {
     if (this.phase === 'title') return;
     this.phase = 'title';
     this.hud.setLights(-1); this.trackScene.setStartLights(0);
+    this.commentator.reset(); this.hud.hideCaption();
     if (!this.race && !this.party) this.buildRace();
     if (this.race) this.race.grid();
     else { const g = this.track.pointAt(GRID_S, 0); this.car.place(g.x, g.y, g.z, this.track.headingAt(GRID_S)); }
@@ -958,16 +986,21 @@ export class Game implements PartyGame, MenuGame {
   // ---- crash damage and the flying tow
 
   /** good as new: no damage, no dents */
+  /** the commentator speaks in AI races (not in a party, a license test or practice) */
+  private get commentating() { return settings.commentary !== 'off' && this.session === 'race' && !!this.race && !this.netRace && !this.test; }
+  private comment(ev: CommentEvent, vars?: Record<string, string | number>) { if (this.commentating && this.phase !== 'title') this.commentator.say(ev, vars); }
+
   /** a car stopped in its box, finished its stop or left the lane: the player's stop repairs the
    *  car (the race fits the tyres and fills the tank), a bot's stop fixes its dents */
   private pitEvent(e: Entrant, ev: 'stopped' | 'done' | 'exit') {
     if (e.driver) {
+      if (ev === 'stopped') this.comment('botPit', { o: e.name });
       if (ev === 'done') { const v = this.rivals.find(r => r.e === e); v?.damage.repair(); v?.dents.repair(); }
       return;
     }
-    if (ev === 'stopped') { this.hud.message('Box, box! The crew are on it', 1.6); audio.impact(3); }
-    else if (ev === 'done') { this.repairCar(); this.pitGo = 1.2; audio.whoosh(); this.hud.message('GO GO GO!', 1.2); }
-    else this.hud.message('Pit exit: back up to speed', 1.4);
+    if (ev === 'stopped') { this.hud.message('Box, box! The crew are on it', 1.6); audio.impact(3); this.comment('pitStop'); }
+    else if (ev === 'done') { this.repairCar(); this.pitGo = 1.2; audio.whoosh(); this.hud.message('GO GO GO!', 1.2); this.boxCalled = false; }
+    else { this.hud.message('Pit exit: back up to speed', 1.4); this.comment('pitOut'); }
   }
 
   /** the HUD and the crews: the limiter, how the stop is going, and which boxes are busy */
@@ -981,6 +1014,10 @@ export class Game implements PartyGame, MenuGame {
     }
     this.pitScene.update(dt, service);
     const me = r?.player.pit;
+    // into the lane, and the crew calling you in when the tyres are going off with laps to go
+    if (me && me.phase === 'in' && this.pitPhase === 'none') this.comment('pitIn');
+    this.pitPhase = me?.phase ?? 'none';
+    if (r && me?.phase === 'none' && !this.boxCalled && Math.max(...this.car.wear) > 0.55 && r.player.lap < r.laps && this.phase === 'driving') { this.boxCalled = true; this.comment('boxbox'); }
     const stop = me && (me.phase === 'service' || this.pitGo > 0)
       ? { done: me.phase === 'service' ? 1 - me.left / me.total : 1, go: me.phase !== 'service', jobs: ['Fresh tyres', 'Air topped up', ...(me.total > PIT.tyres + 0.1 ? ['Bodywork fixed'] : [])] }
       : null;
@@ -1001,6 +1038,7 @@ export class Game implements PartyGame, MenuGame {
     this.towScene.start(this.tow);
     this.flipT = 0; this.wreckT = 0;
     this.hud.message(why, 2.2);
+    this.comment('tow');
     if (this.test && !this.test.over && this.phase === 'driving') this.testOver(null, 'The car had to be towed back to the road. Try again!');
   }
 
@@ -1063,7 +1101,7 @@ export class Game implements PartyGame, MenuGame {
           out.set(-right.x * hit.dir.x + fwd.x * hit.dir.z, 0, -right.z * hit.dir.x + fwd.z * hit.dir.z).normalize();
           const t = c.car.body.translation();
           this.damageFx.crash(at, out, c.car.body.linvel(), hit.amount, c.paint, t.y - c.car.spec.comHeight);
-          if (c.you && hit.amount > 0.25) this.hud.message(c.damage.wrecked ? 'WRECKED!' : 'Big hit!', 1.2);
+          if (c.you && hit.amount > 0.25) { this.hud.message(c.damage.wrecked ? 'WRECKED!' : 'Big hit!', 1.2); this.comment(c.damage.wrecked ? 'wrecked' : 'crash'); }
         }
       }
       c.dents.update();
@@ -1079,7 +1117,7 @@ export class Game implements PartyGame, MenuGame {
     for (const ev of this.towEvents) {
       if (ev === 'arrived') { audio.whoosh(); this.rig.kick(0.4); }
       else if (ev === 'hooked') this.hud.message('Hooked!', 1);
-      else if (ev === 'release') { this.hud.message('Back on track!', 1.6); this.rig.reset(); this.skids.clear(); this.snapshot(this.prev); this.snapshot(this.curr); }
+      else if (ev === 'release') { this.hud.message('Back on track!', 1.6); this.comment('towDone'); this.rig.reset(); this.skids.clear(); this.snapshot(this.prev); this.snapshot(this.curr); }
       else if (ev === 'ring') audio.hop();
       else if (ev === 'gone') { this.tow = null; this.towScene.stop(); }
     }
@@ -1176,7 +1214,7 @@ export class Game implements PartyGame, MenuGame {
       const me = this.race.player;
       if (this.phase === 'driving' && me.lap !== this.lastRaceLap) {
         this.lastRaceLap = me.lap;
-        if (me.lap === this.race.laps && this.race.laps > 1) this.hud.message('Final lap!', 2);
+        if (me.lap === this.race.laps && this.race.laps > 1) { this.hud.message('Final lap!', 2); this.comment('final'); }
       }
       if (this.phase === 'driving' && me.finished) {
         // cross the line: the autopilot takes a cool-down lap while the results come in
@@ -1185,6 +1223,7 @@ export class Game implements PartyGame, MenuGame {
         this.pilot = new Autopilot(this.track);
         this.pilot.aggression = 0.8;
         this.hud.message(me.pos === 1 ? 'You win!' : `Finished P${me.pos}`, 3);
+        this.comment(me.pos === 1 ? 'win' : me.pos <= 3 ? 'podium' : 'finish', { pos: me.pos });
       }
     }
 
@@ -1240,6 +1279,7 @@ export class Game implements PartyGame, MenuGame {
         if (this.race) this.race.go(); else this.jets.armLaunch();
         this.trialStart = this.simTime;
         this.hud.setLights(0); this.trackScene.setStartLights(0); this.hud.message('GO!', 1.2);
+        if (this.race) this.comment('start');
         setTimeout(() => { if (this.phase !== 'lights') this.hud.setLights(-1); }, 900);
       }
     }
@@ -1273,9 +1313,13 @@ export class Game implements PartyGame, MenuGame {
     this.effects(dt);
     if (this.fun) this.funFrame(dt);
     this.pitFrame(dt);
+    this.trackScene.update(dt);
     if (this.frameHop || this.frameEvents.includes('dodge')) audio.hop();
     if (this.frameAir > 0) { audio.pickup(); this.hud.airGained(this.frameAir); }
-    for (const ev of this.frameEvents) { const m = JET_MESSAGES[ev]; if (m) this.hud.message(m[0], m[1]); }
+    for (const ev of this.frameEvents) {
+      const m = JET_MESSAGES[ev]; if (m) this.hud.message(m[0], m[1]);
+      if ((ev === 'flip' || ev === 'roll' || ev === 'spin') && !this.fun) this.comment('stunt');
+    }
     const jetKick = this.frameEvents.some(e => e === 'dodge' || e === 'launch');
     this.frameEvents.length = 0; this.frameHop = false; this.frameAir = 0;
     this.rig.boost = this.jets.boosting ? 1 : 0;
@@ -1298,6 +1342,7 @@ export class Game implements PartyGame, MenuGame {
     if (washed && !this.washedPrev) this.hud.message('Jet wash!', 0.8);
     this.washedPrev = washed;
     if (this.race) this.updateRaceHud(dt);
+    if (!this.paused) this.commentaryFrame(dt);
 
     const impact = this.car.takeImpact();
     if (impact > 2.5) { this.rig.kick(Math.min(1, impact / 10)); audio.impact(impact); }
@@ -1382,6 +1427,20 @@ export class Game implements PartyGame, MenuGame {
     else this.slipT = 0;
   }
 
+  /** the commentator each frame: the running order (for overtakes and the lead) and the fastest lap */
+  private commentaryFrame(dt: number) {
+    const race = this.race;
+    const live = !!race && this.commentating && this.phase === 'driving' && race.time > 4;
+    this.commentator.voice = settings.commentary === 'voice';
+    this.commentator.update(dt, live ? race!.standings.map(e => ({ name: e.name, pos: e.pos, player: e === race!.player })) : null);
+    if (!live) return;
+    const fastest = Math.min(...race!.entrants.map(e => e.bestLap ?? Infinity));
+    if (fastest < this.raceFastest) {
+      if (race!.player.bestLap === fastest && race!.player.lap >= 3) this.comment('fastest');
+      this.raceFastest = fastest;
+    }
+  }
+
   /** Fun Mode each frame: messages and sounds for the player, embers, soot, the HUD panel */
   private funFrame(dt: number) {
     const fun = this.fun!, me = fun.player;
@@ -1402,6 +1461,9 @@ export class Game implements PartyGame, MenuGame {
         else if (ev.kind === 'pad' || ev.kind === 'box') audio.pickup();
         else if (ev.kind === 'spun') audio.impact(7);
         else if (ev.kind === 'mega') audio.hop();
+        const said: CommentEvent | null = ev.kind === 'ring' ? 'ring' : ev.kind === 'singed' ? 'onFire' : ev.kind === 'mega' ? 'mega' : ev.kind === 'stunt' ? 'stunt'
+          : ev.kind === 'air' && ev.text.startsWith('HUGE') ? 'bigAir' : ev.kind === 'item' ? (ev.item === 'oil' ? 'oil' : ev.item === 'turbo' || ev.item === 'triple' ? 'turbo' : null) : null;
+        if (said) this.comment(said);
         if (ev.text) this.hud.message(ev.text, ev.kind === 'pad' ? 0.8 : 1.6);
       }
       fc.events.length = 0;

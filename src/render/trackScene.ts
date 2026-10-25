@@ -9,7 +9,7 @@ import { racingLine } from '../sim/racingLine';
 import type { Quality } from './graphics';
 import { enhanceSurface } from './surfaces';
 import { partitionInstances } from './resources';
-import { asphaltTexture, fenceTexture, grassTexture, signTexture } from './textures';
+import { asphaltTexture, bannerTexture, BANNER_LENGTH, fenceTexture, grassTexture, signTexture } from './textures';
 
 const ROAD_Y = 0.03;
 
@@ -58,6 +58,11 @@ function flipIfNeeded(g: THREE.BufferGeometry, flip: boolean) {
 export class TrackScene {
   readonly group = new THREE.Group();
   private lights: THREE.MeshStandardMaterial[] = [];
+  /** the spectators (they jump when the crowd cheers) and the flags on the grandstand roof */
+  private crowd: THREE.Object3D | null = null;
+  private flags: THREE.Mesh[] = [];
+  private cheerT = 0;
+  private t = 0;
 
   constructor(private track: Track, private terrain: Terrain, quality: Quality) {
     this.buildTerrain(quality);
@@ -179,17 +184,23 @@ export class TrackScene {
   private buildBarriers(quality: Quality) {
     const tr = this.track, W = tr.wallOffset, H = WALL_HEIGHT;
     const concrete = enhanceSurface(new THREE.MeshStandardMaterial({ color: 0xd9d9d4, roughness: 0.85 }), { vary: 0.14, freq: 0.15 });
-    const band = new THREE.MeshStandardMaterial({ color: 0x1673c9, roughness: 0.5 });
+    const band = new THREE.MeshStandardMaterial({ map: bannerTexture(), roughness: 0.55 });
     for (const side of [-1, 1]) {
-      // inner face (with a painted band), top and outer face, each its own strip for crisp edges
+      // inner face (the advertising boards over a concrete foot), top and outer face, each its
+      // own strip for crisp edges
       const faces: [StripPoint, StripPoint, THREE.Material][] = [
-        [{ d: side * W, y: -0.3, u: 0 }, { d: side * W, y: H * 0.62, u: 1 }, concrete],
-        [{ d: side * W, y: H * 0.62, u: 0 }, { d: side * W, y: H, u: 1 }, band],
+        [{ d: side * W, y: -0.3, u: 0 }, { d: side * W, y: 0.16, u: 1 }, concrete],
+        [{ d: side * W, y: 0.16, u: 0 }, { d: side * W, y: H, u: 1 }, band],
         [{ d: side * W, y: H, u: 0 }, { d: side * (W + 0.45), y: H, u: 1 }, concrete],
         [{ d: side * (W + 0.45), y: H, u: 0 }, { d: side * (W + 0.45), y: -0.3, u: 1 }, concrete],
       ];
       for (const [p0, p1, mat] of faces) {
-        const g = flipIfNeeded(strip(tr, [p0, p1], 4), side < 0);
+        const g = flipIfNeeded(strip(tr, [p0, p1], mat === band ? BANNER_LENGTH : 4), side < 0);
+        if (mat === band) {
+          // the boards run along the track and read left to right from the road on both sides
+          const uv = g.getAttribute('uv');
+          for (let k = 0; k < uv.count; k++) { const u = uv.getX(k), v = uv.getY(k); uv.setXY(k, side < 0 ? v : -v, u); }
+        }
         const mesh = new THREE.Mesh(g, mat);
         mesh.castShadow = quality !== 'low'; mesh.receiveShadow = true;
         this.group.add(mesh);
@@ -251,6 +262,25 @@ export class TrackScene {
     g.position.y = this.track.pointAt(0, 0).y;
   }
 
+  /** the crowd cheers: the spectators jump up and down for a few seconds */
+  cheer(seconds: number) { this.cheerT = Math.max(this.cheerT, seconds); }
+
+  /** each frame: the flags ripple in the wind and a cheering crowd bounces */
+  update(dt: number) {
+    this.t += dt;
+    this.cheerT = Math.max(0, this.cheerT - dt);
+    if (this.crowd) this.crowd.position.y = Math.min(1, this.cheerT) * Math.abs(Math.sin(this.t * 9)) * 0.16;
+    for (const f of this.flags) {
+      // a wave runs out along the cloth, bigger towards the free end
+      const pos = (f.geometry as THREE.BufferGeometry).getAttribute('position') as THREE.BufferAttribute;
+      for (let k = 0; k < pos.count; k++) {
+        const x = pos.getX(k);
+        pos.setZ(k, Math.sin(this.t * 4.2 - x * 2.6 + f.userData.phase) * 0.14 * x);
+      }
+      pos.needsUpdate = true;
+    }
+  }
+
   /** start lights: n of 5 lit (0 = all off) */
   setStartLights(n: number) {
     this.lights.forEach((m, k) => { m.emissiveIntensity = k < n ? 3 : 0; });
@@ -298,6 +328,21 @@ export class TrackScene {
       }
       crowd.count = k;
       g.add(crowd);
+      this.crowd = crowd;
+    }
+    // flags along the front of the roof, in the colours of the boards
+    const pole = new THREE.MeshStandardMaterial({ color: 0xd0d4d8, metalness: 0.7, roughness: 0.3 });
+    const flagColors = [0xe31937, 0xf4f4f2, 0x38e8ff, 0x111418, 0xffcc1a];
+    const flagGeo = new THREE.PlaneGeometry(1.5, 0.95, 6, 1).translate(0.78, 0, 0);
+    const poleGeo = new THREE.CylinderGeometry(0.04, 0.04, 3, 6);
+    let fk = 0;
+    for (let x = -len / 2; x <= len / 2 + 0.1; x += len / 8, fk++) {
+      const pl = new THREE.Mesh(poleGeo, pole);
+      pl.position.set(x, 11.8, 3.2); g.add(pl);
+      const f = new THREE.Mesh(flagGeo.clone(), new THREE.MeshStandardMaterial({ color: flagColors[fk % flagColors.length], roughness: 0.7, side: THREE.DoubleSide }));
+      f.position.set(x, 12.75, 3.2); f.castShadow = quality !== 'low';
+      f.userData.phase = fk * 1.7;
+      g.add(f); this.flags.push(f);
     }
     // the grandstand sits on the outside of the main straight, facing the track
     const s = 150, d = -(tr.wallOffset + 7);

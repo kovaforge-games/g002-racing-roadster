@@ -1,5 +1,18 @@
 [
   {
+    "version": "1.1",
+    "date": "2026-10-25",
+    "title": "Eight Teslas, pit stops and a commentator",
+    "items": [
+      "An all-Tesla line-up: Roadster, Model 3, Model X, Model S, Model Y, Cybertruck, Cybercab and Semi, each with its own body and handling. The Model 3, X and S are earned in the career; the Model Y, Cybertruck, Cybercab and Semi are free from the start.",
+      "Real pit stops: a pit lane with a speed limiter, a box for every car and a crew that fits fresh tyres and fixes the car. Tyres now wear out, and the bots pit too.",
+      "A race commentator calls overtakes, crashes, stunts, pit stops and the finish, with captions and a cheering crowd. Turn it to captions only or off in Settings.",
+      "Sharper steering and stronger brakes, and a much faster tow Roadster.",
+      "Fun Mode: seven ramps and more rings of fire that sway and pulse, and the flames now set your car alight.",
+      "Advertising boards along the barriers and flags on the grandstand."
+    ]
+  },
+  {
     "version": "1.0",
     "date": "2026-10-24",
     "title": "Fun Mode and the Garage",

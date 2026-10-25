@@ -68,6 +68,9 @@ export class RivalDriver {
   paceMul = 1;
   needsReset = false;
   private stuckTime = 0;
+  /** backing out of a wall: seconds left, and whether it was tried since the car last moved */
+  private backT = 0;
+  private backedOut = false;
   private mistakeLeft = 0;
   private mistakeCorner = -1;
   private learned = new Float32Array(SECTORS).fill(1);
@@ -235,9 +238,16 @@ export class RivalDriver {
     this.boostHold -= dt;
     const hop = this.hopNext; this.hopNext = false;
 
-    // --- recovery
-    if (speed < 2 && !launching && !this.pit?.holding) this.stuckTime += dt; else this.stuckTime = 0;
-    if (this.stuckTime > 3) { this.needsReset = true; this.stuckTime = 0; }
+    // --- recovery: wedged against a wall or a car, back out with the wheel the other way and
+    // drive on; still stuck after that, the race puts the car back on the road
+    if (this.backT > 0) {
+      this.backT -= dt;
+      if (this.backT > 0) return { inp: { steer: -Math.sign(steer || 1), throttle: 0, brake: 1, handbrake: false }, jet: { boost: false, hop: false, airRoll: false } };
+    }
+    if (speed < 2 && !launching && !this.pit?.holding) this.stuckTime += dt; else { this.stuckTime = 0; this.backedOut = false; }
+    // (only against the outside barriers: in the pit lane or in a jam on the road, wait)
+    if (this.stuckTime > 1.2 && !this.backedOut && !pitting && Math.abs(me.lateral) > tr.halfWidth + 3) { this.backT = 1.4; this.backedOut = true; }
+    if (this.stuckTime > 4.5) { this.needsReset = true; this.stuckTime = 0; this.backedOut = false; }
 
     return {
       inp: { steer, throttle, brake, handbrake: false },
@@ -246,5 +256,5 @@ export class RivalDriver {
   }
 
   /** after a reset: forget the lane and any mistake in progress */
-  settle() { this.lane = this.laneTarget = 0; this.mistakeLeft = 0; this.boostHold = 0; }
+  settle() { this.lane = this.laneTarget = 0; this.mistakeLeft = 0; this.boostHold = 0; this.backT = 0; this.backedOut = false; this.stuckTime = 0; }
 }

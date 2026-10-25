@@ -78,6 +78,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; use
 .toast { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -10px); font-size: 30px; font-weight: 800; letter-spacing: 2px;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6); opacity: 0; transition: opacity 0.2s, transform 0.2s; white-space: nowrap; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+.caption { position: absolute; left: 50%; bottom: 154px; transform: translate(-50%, 8px); max-width: min(600px, calc(100vw - 520px)); min-width: 260px; padding: 8px 16px 10px;
+  background: rgba(8, 10, 14, 0.78); border: 1px solid var(--edge); border-left: 3px solid var(--accent); border-radius: 10px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; }
+.caption.show { opacity: 1; transform: translate(-50%, 0); }
+.caption-who { font-size: 10px; font-weight: 800; letter-spacing: 2.5px; color: var(--accent); margin-bottom: 2px; }
+.caption-who::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #ff3b4e; margin-right: 6px; vertical-align: 1px; box-shadow: 0 0 8px #ff3b4e; }
+.caption-text { font-size: 17px; font-weight: 600; line-height: 1.3; text-shadow: 0 1px 4px #0008; }
+body.touch-mode .caption { bottom: auto; top: 96px; max-width: min(520px, calc(100vw - 40px)); }
 
 .startlights { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); display: none; gap: 14px; padding: 14px 18px;
   background: rgba(10, 10, 12, 0.85); border-radius: 16px; border: 1px solid var(--edge); }

@@ -12,6 +12,8 @@ export interface Settings {
   /** 'auto' picks a preset for the device; a change applies the next time the game loads */
   quality: 'auto' | Quality;
   sound: boolean;
+  /** the race commentator: spoken with captions, captions only, or off */
+  commentary: 'voice' | 'captions' | 'off';
   /** on-screen touch controls: 'auto' shows them on touch devices */
   controls: 'auto' | 'touch' | 'keyboard';
   /** how the touch controls steer */
@@ -30,7 +32,7 @@ export interface RaceSetup {
   cls: ClassId;
 }
 
-const DEFAULT_SETTINGS: Settings = { help: 'easy', camera: 'chase', quality: 'auto', sound: true, controls: 'auto', steering: 'slider' };
+const DEFAULT_SETTINGS: Settings = { help: 'easy', camera: 'chase', quality: 'auto', sound: true, commentary: 'voice', controls: 'auto', steering: 'slider' };
 const DEFAULT_SETUP: RaceSetup = { tod: 'noon', difficulty: 'club', opponents: 5, laps: 3, cls: 'roadster' };
 
 function load<T extends object>(key: string, defaults: T): T {

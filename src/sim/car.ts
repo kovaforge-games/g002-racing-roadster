@@ -75,9 +75,11 @@ export const wheelLayout = (c: CarSpec) => [
  *  Tyre blankets keep them at `blanket` on the grid, so they start out cold but not frozen */
 export const TYRE = { cold: 55, hot: 100, blanket: 45 };
 /** tyre wear: how fast the tread goes (per second, at full load and racing speed, and extra
- *  while sliding) and the grip a fully worn tyre has lost. A race of five or more laps wears
- *  the tyres enough that a pit stop for fresh ones pays */
-export const WEAR = { rate: 0.0016, slide: 0.004, loss: 0.16 };
+ *  while sliding), how much wear a tyre takes before it starts to lose grip, and the grip a fully worn
+ *  tyre has lost. A short race barely touches the grip; five or more laps wear the tyres enough
+ *  that a pit stop for fresh ones pays */
+export const WEAR = { rate: 0.0016, slide: 0.004, fresh: 0.2, loss: 0.2 };
+const wornGrip = (w: number) => 1 - WEAR.loss * Math.max(0, (w - WEAR.fresh) / (1 - WEAR.fresh));
 
 /** grip multiplier at a tyre temperature: a gentle effect. Tyres colder than the blankets (after a
  *  long cool-down) grip a little less, down to 0.98; overheated ones go off, down to 0.97 */
@@ -221,7 +223,7 @@ export class Car {
     const lv = b.linvel(), av = b.angvel();
     const vF = lv.x * fwd.x + lv.y * fwd.y + lv.z * fwd.z;
     // the pit limiter: no drive above the limit, and the brakes bring the car back down to it
-    if (vF > this.limit) inp = { ...inp, throttle: 0, brake: Math.max(inp.brake, Math.min(1, (vF - this.limit) / 4)) };
+    if (vF > this.limit) inp = { ...inp, throttle: 0, brake: Math.max(inp.brake, Math.min(1, (vF - this.limit) / 1.5)) };
     const vR = lv.x * right.x + lv.y * right.y + lv.z * right.z;
     const yawRate = av.x * up.x + av.y * up.y + av.z * up.z;
     const speed2 = lv.x * lv.x + lv.y * lv.y + lv.z * lv.z;
@@ -256,7 +258,7 @@ export class Car {
       const front = this.layout[i].front;
       const share = (front ? S.frontDriveShare : 1 - S.frontDriveShare) / 2;
       let f = drive * share;
-      const grip = S.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]) * this.gripMul[i] * (1 - WEAR.loss * this.wear[i]);
+      const grip = S.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]) * this.gripMul[i] * wornGrip(this.wear[i]);
       if (this.tractionControl && f !== 0) f = Math.sign(f) * Math.min(Math.abs(f), grip * load[i] * 0.95);
       // Rapier ignores the brake on a wheel that has engine force, so only one is ever set
       let brake = 0;

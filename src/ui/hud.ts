@@ -24,6 +24,7 @@ export class Hud {
   private powerArc: SVGPathElement; private regenArc: SVGPathElement; private power: HTMLElement;
   private lap: HTMLElement; private current: HTMLElement; private last: HTMLElement; private best: HTMLElement; private delta: HTMLElement;
   private toast: HTMLElement; private toastTimer = 0;
+  private caption: HTMLElement; private captionText: HTMLElement; private captionTimer = 0;
   private map: HTMLCanvasElement; private mapBg: HTMLCanvasElement;
   private mapScale = 1; private mapOx = 0; private mapOz = 0;
   private lights: HTMLElement; private lightDots: HTMLElement[] = []; private countdown: HTMLElement;
@@ -139,6 +140,10 @@ export class Hud {
     this.funStunt = stat('STUNT'); this.funRings = stat('RINGS');
 
     this.toast = el('div', 'toast', this.root);
+    // the commentator's line, bottom centre over the steering wheel
+    this.caption = el('div', 'caption', this.root);
+    el('div', 'caption-who', this.caption, 'COMMENTARY');
+    this.captionText = el('div', 'caption-text', this.caption);
     this.lights = el('div', 'startlights', this.root);
     for (let k = 0; k < 5; k++) this.lightDots.push(el('div', 'light', this.lights));
     this.countdown = el('div', 'countdown', this.root);
@@ -264,6 +269,7 @@ export class Hud {
     c.restore();
 
     if (this.toastTimer > 0 && (this.toastTimer -= dt) <= 0) this.toast.classList.remove('show');
+    if (this.captionTimer > 0 && (this.captionTimer -= dt) <= 0) this.caption.classList.remove('show');
   }
 
   /** the pit lane: the limiter light, and during a stop how far the crew have got (0..1) and
@@ -354,6 +360,15 @@ export class Hud {
     this.delta.textContent = `${delta <= 0 ? '−' : '+'}${Math.abs(delta).toFixed(3)}`;
     this.delta.className = `delta ${delta <= 0 ? 'faster' : 'slower'}`;
   }
+
+  /** the commentator's line, on screen about as long as it takes to say */
+  say(text: string) {
+    this.captionText.textContent = text;
+    this.caption.classList.add('show');
+    this.captionTimer = Math.max(3, text.length / 14 + 1.2);
+  }
+
+  hideCaption() { this.captionTimer = 0; this.caption.classList.remove('show'); }
 
   message(text: string, seconds = 2.2) {
     this.toast.textContent = text;

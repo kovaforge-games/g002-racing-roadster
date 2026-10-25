@@ -1,10 +1,19 @@
 // Synthesised audio (no sample files, following g001's approach): an electric motor whine that
 // rises with speed, inverter whistle under load, tyre squeal, wind, kerb rumble and impacts,
 // plus the thrusters: a hiss that drops in pitch as the tank empties, hop blasts and pickups.
+// The commentator is the exception: short recorded clips (public/voice), played back to back,
+// with the browser's speech voice when a clip is missing; the car sounds duck while he talks,
+// and a crowd roar swells on the big moments.
 
 class AudioEngine {
   ctx: AudioContext | null = null;
   private master!: GainNode;
+  /** everything but the commentator, so it can duck under his voice */
+  private sfx!: GainNode;
+  private voiceBus: GainNode | null = null;
+  private crowd: GainNode | null = null;
+  /** the commentator's loudness (0 mutes him; the captions stay) */
+  voiceVolume = 1;
   private noise!: AudioBuffer;
   private motor: { osc: OscillatorNode[]; gain: GainNode; filter: BiquadFilterNode } | null = null;
   private inverter!: { osc: OscillatorNode; gain: GainNode };
@@ -22,7 +31,8 @@ class AudioEngine {
       const ctx = (this.ctx = new Ctor());
       const comp = ctx.createDynamicsCompressor();
       this.master = ctx.createGain(); this.master.gain.value = this.muted ? 0 : 0.7;
-      comp.connect(this.master); this.master.connect(ctx.destination);
+      this.sfx = ctx.createGain();
+      comp.connect(this.sfx); this.sfx.connect(this.master); this.master.connect(ctx.destination);
       this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
       const d = this.noise.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -60,6 +70,107 @@ class AudioEngine {
       const silent = ctx.createBufferSource(); silent.buffer = ctx.createBuffer(1, 1, 22050); silent.connect(ctx.destination); silent.start(0);
     }
     if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
+  }
+
+  // --- the commentator: public/voice/index.json maps each phrase, name and position to a clip
+  private clipIndex: Promise<Record<string, string> | null> | null = null;
+  private clipBufs = new Map<string, Promise<AudioBuffer | null>>();
+  private clipSrcs: AudioBufferSourceNode[] = [];
+
+  private voiceIndex() {
+    return (this.clipIndex ??= fetch(`${import.meta.env.BASE_URL}voice/index.json`)
+      .then(r => (r.ok && /json/.test(r.headers.get('content-type') ?? '') ? r.json() as Promise<Record<string, string>> : null))
+      .catch(() => null));
+  }
+
+  private clipBuf(id: string) {
+    let p = this.clipBufs.get(id);
+    if (!p) {
+      p = fetch(`${import.meta.env.BASE_URL}voice/${id}.mp3`)
+        .then(r => (r.ok ? r.arrayBuffer() : null))
+        .then(b => (b && this.ctx ? this.ctx.decodeAudioData(b) : null))
+        .catch(() => null);
+      this.clipBufs.set(id, p);
+    }
+    return p;
+  }
+
+  /** say a line from recorded pieces, back to back; false if a piece is missing or late */
+  async speakClips(texts: string[], excite = 0.4): Promise<boolean> {
+    const ctx = this.ctx;
+    if (!ctx || this.muted || this.voiceVolume <= 0) return !!ctx;
+    const idx = await this.voiceIndex();
+    if (!idx) return false;
+    const ids = texts.map(t => idx[t]);
+    if (ids.some(id => !id)) return false;
+    const bufs = await Promise.race([Promise.all(ids.map(id => this.clipBuf(id))), new Promise<null>(r => setTimeout(() => r(null), 2500))]);
+    if (!bufs || bufs.some(b => !b)) return false;
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    this.stopVoice();
+    if (!this.voiceBus) {
+      this.voiceBus = ctx.createGain();
+      // a gentle presence lift so the voice cuts through the motor
+      const eq = ctx.createBiquadFilter(); eq.type = 'peaking'; eq.frequency.value = 2500; eq.Q.value = 0.8; eq.gain.value = 5;
+      this.voiceBus.connect(eq); eq.connect(this.master);
+    }
+    this.voiceBus.gain.value = 1.7 * this.voiceVolume;
+    const rate = 1 + excite * 0.05;
+    let t = ctx.currentTime + 0.05;
+    bufs.forEach((buf, i) => {
+      const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = rate;
+      src.connect(this.voiceBus!); src.start(t);
+      this.clipSrcs.push(src);
+      // a short breath between pieces, longer after the end of a sentence
+      t += buf!.duration / rate + (/[.!?]$/.test(texts[i]) ? 0.16 : 0.04);
+      if (i === bufs.length - 1) src.onended = () => { if (this.clipSrcs.includes(src)) { this.clipSrcs = []; this.duck(false); } };
+    });
+    this.duck(true);
+    return true;
+  }
+
+  /** fetch the clips a race will likely need, so the first lines aren't late */
+  async preloadClips(texts: string[]) {
+    const idx = await this.voiceIndex();
+    if (idx) for (const t of texts) if (idx[t]) void this.clipBuf(idx[t]);
+  }
+
+  private stopVoice() {
+    for (const s of this.clipSrcs) { try { s.stop(); } catch { /* not started */ } }
+    this.clipSrcs = [];
+  }
+
+  /** the browser's own voice, when a recorded clip is missing */
+  speak(text: string, excite = 0.4) {
+    if (this.muted || this.voiceVolume <= 0 || !('speechSynthesis' in window)) return;
+    try {
+      const u = new SpeechSynthesisUtterance(text.replace(/’/g, "'"));
+      const en = speechSynthesis.getVoices().filter(v => /^en/.test(v.lang));
+      u.voice = en.find(v => /GB|UK/i.test(v.lang + v.name)) ?? en[0] ?? null;
+      u.rate = 1.05 + excite * 0.2; u.pitch = 1 + excite * 0.15; u.volume = Math.min(1, this.voiceVolume);
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    } catch { /* no speech here */ }
+  }
+
+  /** the car sounds drop while the commentator talks */
+  private duck(on: boolean) {
+    if (this.ctx) this.sfx.gain.setTargetAtTime(on ? 0.35 : 1, this.ctx.currentTime, 0.12);
+  }
+
+  /** the crowd roars for a few seconds */
+  cheer(seconds: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this.crowd) {
+      const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.45;
+      const hi = ctx.createBiquadFilter(); hi.type = 'highpass'; hi.frequency.value = 250;
+      this.crowd = ctx.createGain(); this.crowd.gain.value = 0;
+      src.connect(f); f.connect(hi); hi.connect(this.crowd); this.crowd.connect(this.sfx); src.start();
+    }
+    const t = ctx.currentTime, g = this.crowd.gain;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(0.16, t + 0.4);
+    g.setTargetAtTime(0, t + 0.4 + seconds * 0.5, seconds * 0.35);
   }
 
   toggleMute() {
@@ -111,7 +222,7 @@ class AudioEngine {
     f.frequency.setValueAtTime(3000, now); f.frequency.exponentialRampToValueAtTime(500, now + 0.5);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.7, now + 0.015); g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-    src.connect(f); f.connect(g); g.connect(this.master);
+    src.connect(f); f.connect(g); g.connect(this.sfx);
     src.start(now, Math.random()); src.stop(now + 0.65);
     this.impact(6);
   }
@@ -126,7 +237,7 @@ class AudioEngine {
       o.frequency.setValueAtTime(freq, now + k * 0.07); o.frequency.exponentialRampToValueAtTime(freq * 1.25, now + k * 0.07 + 0.12);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, now + k * 0.07); g.gain.exponentialRampToValueAtTime(0.16, now + k * 0.07 + 0.01); g.gain.exponentialRampToValueAtTime(0.001, now + k * 0.07 + 0.3);
-      o.connect(g); g.connect(this.master);
+      o.connect(g); g.connect(this.sfx);
       o.start(now + k * 0.07); o.stop(now + k * 0.07 + 0.32);
     });
   }
@@ -141,7 +252,7 @@ class AudioEngine {
     f.frequency.setValueAtTime(5200, now); f.frequency.exponentialRampToValueAtTime(260, now + 0.9);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.75, now + 0.05); g.gain.exponentialRampToValueAtTime(0.001, now + 1);
-    src.connect(f); f.connect(g); g.connect(this.master);
+    src.connect(f); f.connect(g); g.connect(this.sfx);
     src.start(now, Math.random()); src.stop(now + 1.05);
   }
 
@@ -153,7 +264,7 @@ class AudioEngine {
       const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
       const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 0.5;
       const g = ctx.createGain(); g.gain.value = 0;
-      src.connect(f); f.connect(g); g.connect(this.master); src.start();
+      src.connect(f); f.connect(g); g.connect(this.sfx); src.start();
       this.fireVoice = g;
     }
     // flickering, like a gas burner
@@ -172,7 +283,7 @@ class AudioEngine {
     const a = Math.min(1, strength / 12);
     g.gain.setValueAtTime(a, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-    src.connect(f); f.connect(g); g.connect(this.master);
+    src.connect(f); f.connect(g); g.connect(this.sfx);
     src.start(); src.stop(ctx.currentTime + 0.4);
   }
 }
