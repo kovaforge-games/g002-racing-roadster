@@ -178,7 +178,7 @@ export class Menu {
     // in Fun Mode every car is available, as in g001
     const owns = (c: ClassId) => fun || ownsCar(c);
     const about = h('div', { class: 'field-about' }, DIFFICULTIES[setup.difficulty].about);
-    if (!owns(setup.cls)) setup.cls = 'rental';
+    if (!owns(setup.cls)) setup.cls = 'roadster';
     const start = () => {
       saveSetup();
       if (mode === 'weekend') this.game.startWeekend(setup);
@@ -319,6 +319,8 @@ export class Menu {
       }), steerAbout),
       field('Graphics', segmented(QUALITY, settings.quality, v => { settings.quality = v; reload.classList.toggle('hidden', v === startQuality); change(); }), reload),
       field('Sound', segmented([['on', 'On'], ['off', 'Off']], settings.sound ? 'on' : 'off', v => { settings.sound = v === 'on'; change(); })),
+      field('Commentary', segmented([['voice', 'Voice'], ['captions', 'Captions'], ['off', 'Off']], settings.commentary, v => { settings.commentary = v; change(); }),
+        h('div', { class: 'field-about' }, 'A race commentator calls your overtakes, crashes, stunts and pit stops.')),
       h('div', { class: 'settings-version' }, `Roadster version ${VERSION}`),
       h('div', { class: 'row' }, h('button', { class: 'btn big', autofocus: true, onclick: back }, 'Back')));
   }

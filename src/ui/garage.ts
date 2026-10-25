@@ -53,6 +53,6 @@ export function garageCard(apply: () => void, back: () => void) {
     field('Tyres', segmented(TYRES.map(([v, l]) => [v, l]), g.tyres, v => { g.tyres = v; tyreAbout.textContent = TYRES.find(t => t[0] === v)![2]; apply(); }), tyreAbout),
     field('Glass', segmented(GLASS.map(([v, l]) => [v, l]), g.glass, v => { g.glass = v; apply(); })),
     field('Underglow', segmented(GLOWS.map(([v, l]) => [v, l]), g.glow, v => { g.glow = v; apply(); })),
-    h('p', { class: 'dim small' }, 'The wing and tyres change the handling. The single-seaters keep their own wings and glass.'),
+    h('p', { class: 'dim small' }, 'The wing changes the Roadster\'s handling (the other Teslas have no wing), and the tyres change every car.'),
     h('div', { class: 'row' }, h('button', { class: 'btn big primary', autofocus: true, onclick: back }, 'Done')));
 }

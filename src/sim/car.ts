@@ -33,8 +33,10 @@ export const CAR = {
   frontDriveShare: 0.42,
   maxReverse: 9,
   topSpeed: 72,
-  brakeDecel: 13.5,
+  brakeDecel: 15,
   frontBrakeShare: 0.62,
+  /** extra drag area from an airbrake (the active wing standing up under hard braking at speed) */
+  airbrake: 0.45,
   /** coasting regen, as a deceleration (m/s²) */
   regenDecel: 1.6,
   dragArea: 0.55,
@@ -45,6 +47,9 @@ export const CAR = {
   /** collision boxes (half extents, m): the lower tub, and the cabin (or none) */
   tub: [0.94, 0.28, 2.32] as [number, number, number],
   cabin: [0.7, 0.28, 1.05] as [number, number, number] | null,
+  /** where they sit: the bottom of each box above the road and its centre along the car */
+  tubAt: [0.19, 0] as [number, number],
+  cabinAt: [0.77, -0.25] as [number, number],
   inertia: { x: 3300, y: 3600, z: 760 },
   /** a sequential gearbox (auto-shifting) with this many gears, or 0 for a one-speed EV */
   gears: 0,
@@ -69,6 +74,12 @@ export const wheelLayout = (c: CarSpec) => [
 /** tyre temperatures (°C): below `cold` a tyre shows blue, above `hot` red (yellow between).
  *  Tyre blankets keep them at `blanket` on the grid, so they start out cold but not frozen */
 export const TYRE = { cold: 55, hot: 100, blanket: 45 };
+/** tyre wear: how fast the tread goes (per second, at full load and racing speed, and extra
+ *  while sliding), how much wear a tyre takes before it starts to lose grip, and the grip a fully worn
+ *  tyre has lost. A short race barely touches the grip; five or more laps wear the tyres enough
+ *  that a pit stop for fresh ones pays */
+export const WEAR = { rate: 0.0016, slide: 0.004, fresh: 0.2, loss: 0.2 };
+const wornGrip = (w: number) => 1 - WEAR.loss * Math.max(0, (w - WEAR.fresh) / (1 - WEAR.fresh));
 
 /** grip multiplier at a tyre temperature: a gentle effect. Tyres colder than the blankets (after a
  *  long cool-down) grip a little less, down to 0.98; overheated ones go off, down to 0.97 */
@@ -83,8 +94,11 @@ export const hardpointY = (c: CarSpec) => c.wheelRadius + c.restLength - 0.06 - 
 
 /** maximum road-wheel angle at a given speed: full lock at parking speed, much less at speed */
 export function steerLockAt(speed: number, lock = CAR.steerLock) {
-  return lock / (1 + (Math.abs(speed) / 21) ** 1.4);
+  return lock / (1 + (Math.abs(speed) / 24) ** 1.4);
 }
+
+/** how fast the road wheels can turn (rad/s): quick enough for a crisp turn-in, never a snap */
+const STEER_RATE = 5.5;
 
 export interface WheelState {
   steer: number; spin: number; suspension: number; contact: boolean;
@@ -108,6 +122,10 @@ export class Car {
   /** tyre temperatures (°C), front left, front right, rear left, rear right: they warm up with
    *  load, sliding, braking and driving, and cool towards the air temperature */
   readonly tyreTemp = [TYRE.blanket, TYRE.blanket, TYRE.blanket, TYRE.blanket];
+  /** tyre wear, 0 (new) .. 1 (worn out): less grip as the tread goes */
+  readonly wear = [0, 0, 0, 0];
+  /** the pit lane speed limiter (m/s): above it the motor cuts and the brakes come on */
+  limit = Infinity;
   private tyreForce = [0, 0, 0, 0];
   abs = true;
   /** crash damage (sim/damage.ts): motor power left, and a steering pull from a bent corner */
@@ -149,11 +167,11 @@ export class Car {
       .setTranslation(x, y + S.comHeight + 0.05, z).setRotation(q)
       .setCanSleep(false).setCcdEnabled(true).setAngularDamping(0.4).setLinearDamping(0));
     // body shell: lower tub and cabin, both relative to the centre of mass
-    const tub = RAPIER.ColliderDesc.cuboid(...S.tub).setTranslation(0, 0.19 + S.tub[1] - S.comHeight, 0)
+    const tub = RAPIER.ColliderDesc.cuboid(...S.tub).setTranslation(0, S.tubAt[0] + S.tub[1] - S.comHeight, S.tubAt[1])
       .setMassProperties(S.mass, { x: 0, y: 0, z: 0 }, S.inertia, { x: 0, y: 0, z: 0, w: 1 })
       .setFriction(0.3).setRestitution(0.05);
     world.createCollider(tub, this.body);
-    if (S.cabin) world.createCollider(RAPIER.ColliderDesc.cuboid(...S.cabin).setTranslation(0, 0.77 + S.cabin[1] - S.comHeight, -0.25)
+    if (S.cabin) world.createCollider(RAPIER.ColliderDesc.cuboid(...S.cabin).setTranslation(0, S.cabinAt[0] + S.cabin[1] - S.comHeight, S.cabinAt[1])
       .setDensity(0).setFriction(0.3), this.body);
 
     const v = (this.vehicle = world.createVehicleController(this.body));
@@ -204,6 +222,8 @@ export class Car {
     const { fwd, up, right } = this.axes();
     const lv = b.linvel(), av = b.angvel();
     const vF = lv.x * fwd.x + lv.y * fwd.y + lv.z * fwd.z;
+    // the pit limiter: no drive above the limit, and the brakes bring the car back down to it
+    if (vF > this.limit) inp = { ...inp, throttle: 0, brake: Math.max(inp.brake, Math.min(1, (vF - this.limit) / 1.5)) };
     const vR = lv.x * right.x + lv.y * right.y + lv.z * right.z;
     const yawRate = av.x * up.x + av.y * up.y + av.z * up.z;
     const speed2 = lv.x * lv.x + lv.y * lv.y + lv.z * lv.z;
@@ -213,7 +233,7 @@ export class Car {
 
     // steering: speed-sensitive lock, eased so the car can't snap its wheels across
     const target = -Math.max(-1, Math.min(1, inp.steer + this.steerPull)) * steerLockAt(vF, S.steerLock);   // positive road-wheel angle steers left
-    this.steerAngle += Math.max(-3 * dt, Math.min(3 * dt, target - this.steerAngle));
+    this.steerAngle += Math.max(-STEER_RATE * dt, Math.min(STEER_RATE * dt, target - this.steerAngle));
     // a touch of Ackermann: the inside wheel turns a little more
     const ack = 1 + Math.min(0.15, Math.abs(this.steerAngle) * 0.5);
     const left = this.steerAngle > 0;
@@ -238,7 +258,7 @@ export class Car {
       const front = this.layout[i].front;
       const share = (front ? S.frontDriveShare : 1 - S.frontDriveShare) / 2;
       let f = drive * share;
-      const grip = S.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]) * this.gripMul[i];
+      const grip = S.grip * this.surface[i] * tyreGrip(this.tyreTemp[i]) * this.gripMul[i] * wornGrip(this.wear[i]);
       if (this.tractionControl && f !== 0) f = Math.sign(f) * Math.min(Math.abs(f), grip * load[i] * 0.95);
       // Rapier ignores the brake on a wheel that has engine force, so only one is ever set
       let brake = 0;
@@ -265,7 +285,9 @@ export class Car {
 
     // aero: drag against the motion, downforce along the car's down axis
     // (a car close behind another one sits in its slipstream: up to a third less drag)
-    const drag = 0.5 * RHO * S.dragArea * speed * (1 - 0.28 * this.draft);
+    // the active wing stands up as an airbrake under hard braking at speed
+    const air = braking && vF > 20 ? S.airbrake * Math.min(1, (inp.brake - 0.3) / 0.5) : 0;
+    const drag = 0.5 * RHO * (S.dragArea * (1 - 0.28 * this.draft) + Math.max(0, air)) * speed;
     // rolling resistance, much higher on grass
     const grass = this.surface.reduce((a, g, i) => a + (v.wheelIsInContact(i) ? 1 - g : 0), 0) / 4;
     const roll = speed > 0.3 && grounded ? (S.rollResist + grass * 0.35) * S.mass * G / speed : 0;
@@ -355,6 +377,8 @@ export class Car {
       const hot = 1 + Math.max(0, this.tyreTemp[i] - 90) / 12;
       const cool = (this.tyreTemp[i] - this.ambient) * (TYRE_HEAT.cool + TYRE_HEAT.coolSpeed * Math.abs(vF)) * hot;
       this.tyreTemp[i] += (heat - cool) * dt;
+      // wear: the harder a tyre works at speed, and above all while it slides
+      if (w.contact) this.wear[i] = Math.min(1, this.wear[i] + dt * this.heatMul * (WEAR.rate * work * Math.min(1.5, Math.abs(vF) / 40) + WEAR.slide * w.slip));
     }
   }
 
@@ -379,7 +403,7 @@ export class Car {
   }
 
   /** fresh tyres off the blankets (a new session) */
-  resetTyres() { this.tyreTemp.fill(Math.max(this.ambient, TYRE.blanket)); }
+  resetTyres() { this.tyreTemp.fill(Math.max(this.ambient, TYRE.blanket)); this.wear.fill(0); }
 
   /** consume the impact recorded since the last call */
   takeImpact() { const i = this.impact; this.impact = 0; return i; }

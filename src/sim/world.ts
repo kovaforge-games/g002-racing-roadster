@@ -3,6 +3,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Track } from './track';
 import type { Terrain } from './terrain';
+import { PIT } from './pits';
+
+/** the pit wall between the main straight and the pit lane */
+export const PIT_WALL_HEIGHT = 1.0;
 
 export const PHYSICS_DT = 1 / 120;
 export const WALL_HEIGHT = 1.1;
@@ -46,6 +50,15 @@ export function buildWorld(track: Track, terrain: Terrain) {
         .setTranslation((a.x + b.x) / 2, (a.y + b.y) / 2 + WALL_HEIGHT * 1.5 + FENCE_HEIGHT / 2 - 0.1, (a.z + b.z) / 2)
         .setRotation(q).setFriction(0.1).setRestitution(0.05));
     }
+  }
+  // the pit wall: concrete between the track and the pit lane, in short boxes like the barriers
+  for (let s0 = PIT.wallFrom; s0 < PIT.wallTo; s0 += WALL_SEGMENT) {
+    const s1 = Math.min(PIT.wallTo, s0 + WALL_SEGMENT);
+    const a = track.pointAt(s0, PIT.wallD + 0.15), b = track.pointAt(s1, PIT.wallD + 0.15);
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, len = Math.hypot(dx, dz);
+    world.createCollider(RAPIER.ColliderDesc.cuboid(0.15, PIT_WALL_HEIGHT / 2, len / 2 + 0.05)
+      .setTranslation((a.x + b.x) / 2, (a.y + b.y) / 2 + PIT_WALL_HEIGHT / 2, (a.z + b.z) / 2)
+      .setRotation(quatYawPitch(Math.atan2(dx, dz), -Math.atan2(dy, len))).setFriction(0.15).setRestitution(0.1));
   }
   return world;
 }

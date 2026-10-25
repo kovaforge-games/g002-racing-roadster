@@ -51,7 +51,7 @@ export const GLOWS: [Glow, string, number][] = [['off', 'Off', 0], ['cyan', 'Cya
 export const PLAYER_NUMBER = 12;
 const DEFAULT: GarageConfig = {
   paint: 0, custom: '#e10600', finish: 'factory', pattern: 'solid', second: '#111214', number: PLAYER_NUMBER, showNumber: true,
-  rims: 'aero', rimColor: '#0e0f11', wing: 'active', tyres: 'road', glass: 'gold', glow: 'off',
+  rims: 'aero', rimColor: '#0e0f11', wing: 'active', tyres: 'road', glass: 'smoke', glow: 'off',
 };
 const KEY = 'rd-garage';
 
@@ -69,8 +69,9 @@ export const hex = (css: string) => parseInt(css.replace('#', ''), 16) || 0;
 /** the class's spec with the wing fitted (road cars only: the single-seaters keep theirs) */
 export function tunedSpec(spec: CarSpec, roadCar: boolean, g: GarageConfig = garage): CarSpec {
   if (!roadCar || g.wing === 'active') return spec;
-  if (g.wing === 'fixed') return { ...spec, liftArea: spec.liftArea + 0.45, dragArea: spec.dragArea + 0.06 };
-  return { ...spec, liftArea: Math.max(0.15, spec.liftArea - 0.3), dragArea: Math.max(0.4, spec.dragArea - 0.05) };
+  // (only the active wing doubles as an airbrake)
+  if (g.wing === 'fixed') return { ...spec, liftArea: spec.liftArea + 0.45, dragArea: spec.dragArea + 0.06, airbrake: 0.15 };
+  return { ...spec, liftArea: Math.max(0.15, spec.liftArea - 0.3), dragArea: Math.max(0.4, spec.dragArea - 0.05), airbrake: 0 };
 }
 
 /** put the chosen tyres on a physics car (front left, front right, rear left, rear right) */

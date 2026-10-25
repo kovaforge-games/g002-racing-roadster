@@ -16,7 +16,7 @@ export interface Weekend {
 }
 
 /** the reference driver's flying lap (s) in each class */
-export const LAP_REF: Record<ClassId, number> = { rental: 66.38, '0x1.5': 51.82, '0x2.5': 45.38, '0x3.5': 40.55 };
+export const LAP_REF: Record<ClassId, number> = { roadster: 63.69, model3: 59.34, modelx: 56.02, models: 52.02, modely: 61.62, cybertruck: 64.23, cybercab: 64.63, semi: 72.03 };
 /** qualifying laps (the first from a standing start, so the second is the flying one) */
 export const QUALI_LAPS = 2;
 

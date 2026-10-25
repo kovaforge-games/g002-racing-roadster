@@ -24,6 +24,7 @@ export class Hud {
   private powerArc: SVGPathElement; private regenArc: SVGPathElement; private power: HTMLElement;
   private lap: HTMLElement; private current: HTMLElement; private last: HTMLElement; private best: HTMLElement; private delta: HTMLElement;
   private toast: HTMLElement; private toastTimer = 0;
+  private caption: HTMLElement; private captionText: HTMLElement; private captionTimer = 0;
   private map: HTMLCanvasElement; private mapBg: HTMLCanvasElement;
   private mapScale = 1; private mapOx = 0; private mapOz = 0;
   private lights: HTMLElement; private lightDots: HTMLElement[] = []; private countdown: HTMLElement;
@@ -35,7 +36,9 @@ export class Hud {
   private test: HTMLElement; private testName: HTMLElement; private testTime: HTMLElement; private testBar: HTMLElement; private testMedals: HTMLElement[] = [];
   readonly results: HTMLElement;
   private wheel: HTMLElement; private wheelGear: HTMLElement; private wheelRpm: HTMLElement; private wheelKmh: HTMLElement;
-  private tyres: HTMLElement[] = [];
+  private tyres: HTMLElement[] = []; private tread: HTMLElement; private treadPct: HTMLElement;
+  private pit: HTMLElement; private pitTitle: HTMLElement; private pitBar: HTMLElement; private pitJobs: HTMLElement;
+  private limiter: HTMLElement;
   private fun: HTMLElement; private funItem: HTMLElement; private funItemName: HTMLElement; private funStunt: HTMLElement; private funRings: HTMLElement;
 
   constructor(private track: Track) {
@@ -91,6 +94,17 @@ export class Hud {
     el('div', 'label', tyres, 'TYRES');
     const grid = el('div', 'tyregrid', tyres);
     for (let k = 0; k < 4; k++) this.tyres.push(el('div', 'tyre cold', grid));
+    // tread left: the tyres wear as you race, and a pit stop puts new ones on
+    const tread = el('div', 'tread', tyres);
+    this.tread = el('div', 'fill', el('div', 'tread-bar', tread));
+    this.treadPct = el('div', 'tread-pct', tread, '100%');
+
+    // the pit lane: the speed limiter light, and the stop in the box with the crew's jobs
+    this.limiter = el('div', 'limiter hidden', this.root, 'PIT LIMITER · 80');
+    this.pit = el('div', 'panel pitpanel hidden', this.root);
+    this.pitTitle = el('div', 'pit-title', this.pit, 'PIT STOP');
+    this.pitBar = el('div', 'fill', el('div', 'pit-bar', this.pit));
+    this.pitJobs = el('div', 'pit-jobs', this.pit);
 
     // minimap, bottom left
     const mapWrap = el('div', 'panel mapwrap', this.root);
@@ -126,6 +140,10 @@ export class Hud {
     this.funStunt = stat('STUNT'); this.funRings = stat('RINGS');
 
     this.toast = el('div', 'toast', this.root);
+    // the commentator's line, bottom centre over the steering wheel
+    this.caption = el('div', 'caption', this.root);
+    el('div', 'caption-who', this.caption, 'COMMENTARY');
+    this.captionText = el('div', 'caption-text', this.caption);
     this.lights = el('div', 'startlights', this.root);
     for (let k = 0; k < 5; k++) this.lightDots.push(el('div', 'light', this.lights));
     this.countdown = el('div', 'countdown', this.root);
@@ -209,7 +227,7 @@ export class Hud {
   }
 
   update(dt: number, o: { speed: number; powerKw: number; lap: number; current: number | null; last: number | null; best: number | null; x: number; z: number; heading: number; help: string; paint: string;
-    others?: { x: number; z: number; color: string }[]; steer: number; gear: string; rpm: number; tyres: number[] }) {
+    others?: { x: number; z: number; color: string }[]; steer: number; gear: string; rpm: number; tyres: number[]; wear: number }) {
     const kmh = Math.abs(o.speed) * 3.6;
     this.wheel.style.transform = `rotate(${(o.steer * 60).toFixed(1)}deg)`;
     if (this.wheelGear.textContent !== o.gear) this.wheelGear.textContent = o.gear;
@@ -220,6 +238,10 @@ export class Hud {
       if (this.tyres[k].className !== c) this.tyres[k].className = c;
       this.tyres[k].textContent = String(Math.round(t));
     });
+    const left = Math.round((1 - o.wear) * 100);
+    this.tread.style.width = `${left}%`;
+    this.tread.parentElement!.className = `tread-bar${left < 45 ? ' worn' : left < 70 ? ' used' : ''}`;
+    if (this.treadPct.textContent !== `${left}%`) this.treadPct.textContent = `${left}%`;
     this.speed.textContent = kmh.toFixed(0);
     this.unit.textContent = o.speed < -0.5 ? 'KM/H · R' : 'KM/H';
     const p = Math.max(-1, Math.min(1, o.powerKw / 560));
@@ -247,6 +269,20 @@ export class Hud {
     c.restore();
 
     if (this.toastTimer > 0 && (this.toastTimer -= dt) <= 0) this.toast.classList.remove('show');
+    if (this.captionTimer > 0 && (this.captionTimer -= dt) <= 0) this.caption.classList.remove('show');
+  }
+
+  /** the pit lane: the limiter light, and during a stop how far the crew have got (0..1) and
+   *  what they are doing; null when not stopped */
+  setPit(limiter: boolean, stop: { done: number; jobs: string[]; go: boolean } | null) {
+    this.limiter.classList.toggle('hidden', !limiter);
+    this.pit.classList.toggle('hidden', !stop);
+    if (!stop) return;
+    this.pit.classList.toggle('go', stop.go);
+    this.pitTitle.textContent = stop.go ? 'GO GO GO!' : 'PIT STOP';
+    this.pitBar.style.width = `${Math.round(stop.done * 100)}%`;
+    const html = stop.jobs.map(j => `<span>${j}</span>`).join('');
+    if (this.pitJobs.innerHTML !== html) this.pitJobs.innerHTML = html;
   }
 
   /** race position and the field in order; null hides the panel (free practice) */
@@ -324,6 +360,15 @@ export class Hud {
     this.delta.textContent = `${delta <= 0 ? '−' : '+'}${Math.abs(delta).toFixed(3)}`;
     this.delta.className = `delta ${delta <= 0 ? 'faster' : 'slower'}`;
   }
+
+  /** the commentator's line, on screen about as long as it takes to say */
+  say(text: string) {
+    this.captionText.textContent = text;
+    this.caption.classList.add('show');
+    this.captionTimer = Math.max(3, text.length / 14 + 1.2);
+  }
+
+  hideCaption() { this.captionTimer = 0; this.caption.classList.remove('show'); }
 
   message(text: string, seconds = 2.2) {
     this.toast.textContent = text;

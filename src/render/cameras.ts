@@ -18,6 +18,8 @@ export class CameraRig {
   /** 0..1 rear-jet thrust: widens the view and adds a buzz */
   boost = 0;
   private boostK = 0;
+  /** the car's size against the Roadster's: the cameras move back and up for a bigger one */
+  size = { length: 1, height: 1 };
 
   reset() { this.init = false; this.initY = false; this.pos.set(0, 0, 0); }
   kick(amount: number) { this.shake = Math.min(1, this.shake + amount); }
@@ -45,8 +47,9 @@ export class CameraRig {
     const jx = (Math.random() - 0.5) * sh, jy = (Math.random() - 0.5) * sh;
 
     if (!onboard) {
-      const dist = this.mode === 'chase' ? 6.0 + speedK * 1.3 : 9.5 + speedK * 1.5;
-      const up = this.mode === 'chase' ? 1.75 : 2.9;
+      const { length: L, height: H } = this.size;
+      const dist = (this.mode === 'chase' ? 6.0 + speedK * 1.3 : 9.5 + speedK * 1.5) * (0.5 + 0.5 * L) * (0.7 + 0.3 * H);
+      const up = (this.mode === 'chase' ? 1.75 : 2.9) * (0.35 + 0.65 * H);
       const target = new THREE.Vector3(f.x - fx * dist, f.y + up, f.z - fz * dist);
       if (!this.init) this.pos.copy(target);
       const y = this.pos.y;
@@ -55,10 +58,11 @@ export class CameraRig {
       this.pos.y = this.initY ? y + (target.y - y) * Math.min(1, dt * 3.5) : target.y;
       this.initY = true;
       this.cam.position.set(this.pos.x + jx, this.pos.y + jy, this.pos.z);
-      this.cam.lookAt(f.x + fx * 4, f.y + (this.mode === 'chase' ? 0.75 : 0.9), f.z + fz * 4);
+      this.cam.lookAt(f.x + fx * 4 * L, f.y + (this.mode === 'chase' ? 0.75 : 0.9) * H, f.z + fz * 4 * L);
     } else {
       // onboard cameras are rigidly attached to the car
-      const off = this.mode === 'hood' ? [0, 0.68, 1.0] : [0, 0.1, 2.45];
+      const { length: L, height: H } = this.size;
+      const off = this.mode === 'hood' ? [0, 0.68 * H, 1.0 * L] : [0, 0.1 * H, 2.45 * L];
       const qCar = new THREE.Quaternion().setFromEuler(new THREE.Euler(f.pitch, f.heading, f.roll, 'YXZ'));
       const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(f.pitch, f.heading + (lookBack ? Math.PI : 0), f.roll, 'YXZ'));
       const o = new THREE.Vector3(off[0], off[1], off[2]).applyQuaternion(qCar);

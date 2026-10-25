@@ -78,6 +78,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; use
 .toast { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -10px); font-size: 30px; font-weight: 800; letter-spacing: 2px;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6); opacity: 0; transition: opacity 0.2s, transform 0.2s; white-space: nowrap; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+.caption { position: absolute; left: 50%; bottom: 154px; transform: translate(-50%, 8px); max-width: min(600px, calc(100vw - 520px)); min-width: 260px; padding: 8px 16px 10px;
+  background: rgba(8, 10, 14, 0.78); border: 1px solid var(--edge); border-left: 3px solid var(--accent); border-radius: 10px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; }
+.caption.show { opacity: 1; transform: translate(-50%, 0); }
+.caption-who { font-size: 10px; font-weight: 800; letter-spacing: 2.5px; color: var(--accent); margin-bottom: 2px; }
+.caption-who::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #ff3b4e; margin-right: 6px; vertical-align: 1px; box-shadow: 0 0 8px #ff3b4e; }
+.caption-text { font-size: 17px; font-weight: 600; line-height: 1.3; text-shadow: 0 1px 4px #0008; }
+body.touch-mode .caption { bottom: auto; top: 96px; max-width: min(520px, calc(100vw - 40px)); }
 
 .startlights { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); display: none; gap: 14px; padding: 14px 18px;
   background: rgba(10, 10, 12, 0.85); border-radius: 16px; border: 1px solid var(--edge); }
@@ -258,6 +265,23 @@ body.on-title .hud { display: none; }
 .tyrepanel { right: 16px; bottom: 186px; padding: 8px 12px 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .tyrepanel .label { font-size: 10px; letter-spacing: 3px; color: var(--dim); font-weight: 700; }
 .tyregrid { display: grid; grid-template-columns: 30px 30px; gap: 6px 18px; }
+.tread { display: flex; align-items: center; gap: 6px; width: 78px; }
+.tread-bar { flex: 1; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.tread-bar .fill { height: 100%; background: #5fe08a; border-radius: 3px; transition: width 0.4s; }
+.tread-bar.used .fill { background: #ffd23f; }
+.tread-bar.worn .fill { background: #ff5a4f; }
+.tread-pct { font-size: 10px; font-weight: 800; color: var(--dim); min-width: 28px; text-align: right; }
+.limiter { position: absolute; top: 92px; left: 50%; transform: translateX(-50%); padding: 6px 14px; border-radius: 8px; background: #ffb21c; color: #1a1200;
+  font-size: 13px; font-weight: 900; letter-spacing: 2px; box-shadow: 0 0 18px rgba(255, 178, 28, 0.55); animation: limiter-blink 0.9s steps(2) infinite; }
+.limiter.hidden, .pitpanel.hidden { display: none; }
+@keyframes limiter-blink { 50% { background: #ffcf63; } }
+.pitpanel { top: 176px; left: 50%; transform: translateX(-50%); padding: 12px 18px 14px; min-width: 260px; text-align: center; border-color: rgba(255, 178, 28, 0.6); }
+.pit-title { font-size: 20px; font-weight: 900; letter-spacing: 4px; color: #ffb21c; }
+.pitpanel.go .pit-title { color: #5fe08a; }
+.pit-bar { margin: 8px 0 8px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.pit-bar .fill { height: 100%; background: linear-gradient(90deg, #ffb21c, #5fe08a); }
+.pit-jobs { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; font-size: 11px; font-weight: 700; color: var(--dim); }
+.pit-jobs span { padding: 2px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); }
 .tyre { height: 40px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #04121a; transition: background 0.4s; }
 .tyre.cold { background: #3d8bff; color: #fff; }
 .tyre.warm { background: #ffd23d; }

@@ -16,9 +16,9 @@ export interface Championship {
 }
 
 export const CHAMPIONSHIPS: Championship[] = [
-  { id: '0x1.5', name: '0x1.5 Championship', cls: '0x1.5', reward: '0x2.5',
+  { id: 'model3', name: 'Model 3 Championship', cls: 'model3', reward: 'modelx',
     rounds: [{ tod: 'noon', laps: 3 }, { tod: 'sunset', laps: 3 }, { tod: 'night', laps: 4 }] },
-  { id: '0x2.5', name: '0x2.5 Championship', cls: '0x2.5', reward: '0x3.5',
+  { id: 'modelx', name: 'Model X Championship', cls: 'modelx', reward: 'models',
     rounds: [{ tod: 'morning', laps: 3 }, { tod: 'noon', laps: 4 }, { tod: 'sunset', laps: 4 }, { tod: 'night', laps: 5 }] },
 ];
 

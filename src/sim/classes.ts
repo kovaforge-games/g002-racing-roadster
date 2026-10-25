@@ -1,10 +1,16 @@
-// The race classes: the Rental road car everyone starts with, and three open-wheel single-seaters,
-// 0x1.5, 0x2.5 and 0x3.5, each faster and with more downforce than the last. Licenses use the
-// single-seaters; championships earn them.
+// The race classes: a Tesla in each. The Roadster everyone starts with, then the career cars
+// (the Model 3, the Model X and the Model S, each quicker than the last, earned through the
+// licenses and championships), and four free to drive from the start: the Model Y, the
+// Cybertruck, the Cybercab and the Semi. Every car races against a field of the same car.
 import { CAR, type CarSpec } from './car';
+import type { TeslaKind } from '../render/teslaModel';
 
-export type ClassId = 'rental' | '0x1.5' | '0x2.5' | '0x3.5';
-export const CLASS_ORDER: ClassId[] = ['rental', '0x1.5', '0x2.5', '0x3.5'];
+export type ClassId = 'roadster' | 'model3' | 'modelx' | 'models' | 'modely' | 'cybertruck' | 'cybercab' | 'semi';
+export const CLASS_ORDER: ClassId[] = ['roadster', 'model3', 'modelx', 'models', 'modely', 'cybertruck', 'cybercab', 'semi'];
+/** the career ladder, slowest first: licenses and championships move you up it */
+export const CAREER: ClassId[] = ['roadster', 'model3', 'modelx', 'models'];
+/** in the garage from the start */
+export const STARTER_CARS: ClassId[] = ['roadster', 'modely', 'cybertruck', 'cybercab', 'semi'];
 
 export interface CarClass {
   id: ClassId;
@@ -13,60 +19,97 @@ export interface CarClass {
   about: string;
   /** how you get it */
   unlock: string;
-  /** a road car (the roadster body) or an open-wheel single-seater */
-  body: 'road' | 'open';
+  /** the 3D body: the Roadster (with its active wing) or one of the other Teslas */
+  body: 'roadster' | TeslaKind;
   spec: CarSpec;
   /** the bots' braking (m/s²) when they work out corner speeds */
   brake: number;
 }
 
-/** an open-wheel single-seater: light, low, stiff, lots of downforce and a sequential gearbox */
-function single(o: Partial<CarSpec>): CarSpec {
-  const mass = o.mass ?? 720;
+/** a Tesla on its own dimensions: springs, anti-roll and inertia scale with its mass and size.
+ *  len and wid are the body's length and width (m), for the inertia */
+function tesla(len: number, wid: number, o: Partial<CarSpec>): CarSpec {
+  const mass = o.mass ?? CAR.mass, m = mass / CAR.mass, l = (len / 4.64) ** 2, w = (wid / 1.88) ** 2;
   return {
     ...CAR,
-    mass, wheelbase: 3.3, track: 1.62, wheelRadius: 0.34, comHeight: 0.26, restLength: 0.2, maxTravel: 0.12,
-    // stiff springs (per unit of mass) so the downforce doesn't bottom the car out
-    stiffness: 110, damping: { compression: 4.6, relaxation: 5.8 },
-    frontDriveShare: 0, frontBrakeShare: 0.58, maxReverse: 6, regenDecel: 0.9, rollResist: 0.015,
-    antiRoll: { front: 42000 * mass / CAR.mass * 1.6, rear: 26000 * mass / CAR.mass * 1.6 },
-    steerLock: 0.5,
-    tub: [0.55, 0.22, 2.45], cabin: null,
-    inertia: { x: 3300 * mass / CAR.mass * 0.9, y: 3600 * mass / CAR.mass * 0.9, z: 760 * mass / CAR.mass * 0.7 },
-    idleRpm: 4000,
+    // no active wing, so no airbrake
+    airbrake: 0,
+    antiRoll: { front: CAR.antiRoll.front * m, rear: CAR.antiRoll.rear * m },
+    inertia: { x: CAR.inertia.x * m * l, y: CAR.inertia.y * m * (l + w) / 2, z: CAR.inertia.z * m * w },
     ...o,
   };
 }
 
 export const CLASSES: Record<ClassId, CarClass> = {
-  rental: {
-    id: 'rental', name: 'Rental', body: 'road', brake: 9,
-    about: 'Where everyone starts: a rental road car. Gentle power, soft grip and very forgiving. 210 kW, 200 km/h.',
+  roadster: {
+    id: 'roadster', name: 'Roadster', body: 'roadster', brake: 10.5,
+    about: 'Where everyone starts: the Roadster in its starter tune. Forgiving, with an active wing that brakes for you. 290 kW, 215 km/h.',
     unlock: 'Yours from the start.',
-    spec: { ...CAR, power: 210000, maxDriveForce: 12500, topSpeed: 56, grip: 1.38, brakeDecel: 11, dragArea: 0.6, liftArea: 0.5 },
+    spec: { ...CAR, power: 290000, maxDriveForce: 14000, topSpeed: 60, grip: 1.46, brakeDecel: 14, dragArea: 0.58, liftArea: 0.6 },
   },
-  '0x1.5': {
-    id: '0x1.5', name: '0x1.5', body: 'open', brake: 15,
-    about: 'The first single-seater: light and nimble, with a 6-speed gearbox. 300 kW, 260 km/h. The National B license car.',
+  model3: {
+    id: 'model3', name: 'Model 3', body: 'model3', brake: 12.5,
+    about: 'The Model 3 Performance: light, low and sharp on turn-in. 390 kW, 262 km/h. The National B license car.',
     unlock: 'Earn the National B license.',
-    spec: single({ power: 300000, maxDriveForce: 11500, topSpeed: 72, grip: 1.75, liftArea: 2.2, dragArea: 0.72, brakeDecel: 17, gears: 6, redline: 11000 }),
+    spec: tesla(4.72, 1.85, { mass: 1850, wheelbase: 2.88, track: 1.58, wheelRadius: 0.34, comHeight: 0.31, power: 390000, maxDriveForce: 15500, topSpeed: 73, grip: 1.64, brakeDecel: 16, dragArea: 0.5, liftArea: 0.8,
+      tub: [0.9, 0.27, 2.3], cabin: [0.64, 0.24, 1.15], cabinAt: [0.84, -0.35] }),
   },
-  '0x2.5': {
-    id: '0x2.5', name: '0x2.5', body: 'open', brake: 17,
-    about: 'Faster and stickier, with a bigger wing and 7 gears. 430 kW, 300 km/h. The National A license car.',
-    unlock: 'Earn it in the 0x1.5 Championship (3 races).',
-    spec: single({ mass: 700, power: 430000, maxDriveForce: 13000, topSpeed: 83, grip: 1.9, liftArea: 3, dragArea: 0.82, brakeDecel: 20, gears: 7, redline: 12000 }),
+  modelx: {
+    id: 'modelx', name: 'Model X', body: 'modelx', brake: 14.5,
+    about: 'The Model X Plaid: a heavy SUV with three motors that pulls like nothing else off the line. 750 kW, 262 km/h. The National A license car.',
+    unlock: 'Earn it in the Model 3 Championship (3 races).',
+    spec: tesla(5.06, 2.0, { mass: 2450, wheelbase: 2.97, track: 1.68, wheelRadius: 0.37, comHeight: 0.36, power: 750000, maxDriveForce: 25000, topSpeed: 74, grip: 1.86, brakeDecel: 17.5, dragArea: 0.7, liftArea: 1.2,
+      tub: [0.98, 0.32, 2.45], cabin: [0.7, 0.3, 1.45], cabinAt: [1.02, -0.45] }),
   },
-  '0x3.5': {
-    id: '0x3.5', name: '0x3.5', body: 'open', brake: 19,
-    about: 'The fastest car in the game: huge downforce and 8 gears. 600 kW, 340 km/h. The International A license car.',
-    unlock: 'Earn it in the 0x2.5 Championship (4 races).',
-    spec: single({ mass: 680, power: 600000, maxDriveForce: 15000, topSpeed: 94, grip: 2.05, liftArea: 3.8, dragArea: 0.92, brakeDecel: 23, gears: 8, redline: 13000 }),
+  models: {
+    id: 'models', name: 'Model S', body: 'models', brake: 15,
+    about: 'The Model S Plaid: the fastest Tesla saloon there is, with the grip to use it. 760 kW, 322 km/h. The International A license car.',
+    unlock: 'Earn it in the Model X Championship (4 races).',
+    spec: tesla(5.02, 1.96, { mass: 2100, wheelbase: 2.96, track: 1.66, wheelRadius: 0.36, comHeight: 0.3, power: 760000, maxDriveForce: 22500, topSpeed: 89, grip: 2.0, brakeDecel: 18.5, dragArea: 0.52, liftArea: 1.7,
+      tub: [0.96, 0.27, 2.45], cabin: [0.66, 0.24, 1.2], cabinAt: [0.84, -0.4] }),
+  },
+  modely: {
+    id: 'modely', name: 'Model Y', body: 'modely', brake: 11.5,
+    about: 'The Model Y Performance: the family crossover, taller and softer than the 3 but still quick. 340 kW, 250 km/h.',
+    unlock: 'Free to drive from the start.',
+    spec: tesla(4.8, 1.92, { mass: 2000, wheelbase: 2.89, track: 1.64, wheelRadius: 0.36, comHeight: 0.35, power: 340000, maxDriveForce: 15500, topSpeed: 69, grip: 1.58, brakeDecel: 15, dragArea: 0.62, liftArea: 0.6,
+      tub: [0.94, 0.31, 2.35], cabin: [0.68, 0.28, 1.3], cabinAt: [0.98, -0.4] }),
+  },
+  cybertruck: {
+    id: 'cybertruck', name: 'Cybertruck', body: 'cybertruck', brake: 10,
+    about: 'The Cybertruck Cyberbeast: three tonnes of stainless steel with three motors. Brake early and lean on it in the corners. 630 kW, 209 km/h.',
+    unlock: 'Free to drive from the start.',
+    spec: tesla(5.68, 2.0, { mass: 3100, wheelbase: 3.65, track: 1.76, wheelRadius: 0.43, comHeight: 0.42, restLength: 0.34, maxTravel: 0.26, stiffness: 32,
+      power: 630000, maxDriveForce: 28000, topSpeed: 58, grip: 1.45, brakeDecel: 13, dragArea: 0.95, liftArea: 0.3, steerLock: 0.56,
+      tub: [1.0, 0.36, 2.84], tubAt: [0.42, 0], cabin: [0.86, 0.26, 1.25], cabinAt: [1.12, 0.1] }),
+  },
+  cybercab: {
+    id: 'cybercab', name: 'Cybercab', body: 'cybercab', brake: 11,
+    about: 'The two-seat robotaxi, with a steering wheel put back in for you. Small, light and nimble, but not fast. 200 kW, 190 km/h.',
+    unlock: 'Free to drive from the start.',
+    spec: tesla(4.24, 1.9, { mass: 1600, wheelbase: 2.75, track: 1.6, wheelRadius: 0.35, comHeight: 0.3, power: 200000, maxDriveForce: 11500, topSpeed: 53, grip: 1.52, brakeDecel: 14.5, dragArea: 0.45, liftArea: 0.5,
+      tub: [0.92, 0.27, 2.08], cabin: [0.66, 0.24, 0.95], cabinAt: [0.84, -0.15] }),
+  },
+  semi: {
+    id: 'semi', name: 'Semi', body: 'semi', brake: 8,
+    about: 'The Semi tractor, no trailer: eight tonnes, a centre driving seat and 800 kW. Slow to stop and slow to turn, and nothing pushes it about. 150 km/h.',
+    unlock: 'Free to drive from the start.',
+    spec: tesla(7.0, 2.55, { mass: 8000, wheelbase: 4.4, track: 2.05, wheelRadius: 0.52, comHeight: 0.55, restLength: 0.34, maxTravel: 0.22, stiffness: 34,
+      damping: { compression: 2.8, relaxation: 3.4 }, frontDriveShare: 0, frontBrakeShare: 0.5,
+      power: 800000, maxDriveForce: 50000, topSpeed: 42, grip: 1.25, brakeDecel: 10, dragArea: 3.2, liftArea: 0, steerLock: 0.5, maxReverse: 6,
+      tub: [1.25, 0.5, 3.45], tubAt: [0.5, -0.27], cabin: [1.2, 1.3, 2.0], cabinAt: [1.2, 1.2] }),
   },
 };
 
-/** the road car the game started with (party races and the showroom drive it) */
+/** the full-power Roadster (party races and the showroom drive it) */
 export const ROADSTER = CAR;
 
 /** cornering grip from downforce (m/s² per (m/s)²): what the bots' corner speeds allow for */
 export const aeroOf = (s: CarSpec) => 0.6 * s.liftArea / s.mass;
+
+/** a saved class id from before the Tesla line-up (or anything unknown) as one of today's */
+export function migrateClass(id: unknown): ClassId {
+  const old: Record<string, ClassId> = { rental: 'roadster', '0x1.5': 'model3', '0x2.5': 'modelx', '0x3.5': 'models' };
+  if (typeof id === 'string' && (CLASS_ORDER as string[]).includes(id)) return id as ClassId;
+  return (typeof id === 'string' && old[id]) || 'roadster';
+}

@@ -95,7 +95,7 @@ class InputManager {
     const gp = this.pollPad();
     // keyboard: ramp digital keys into smooth analogue values (faster back to centre)
     const target = (this.held(KEYS.right) ? 1 : 0) - (this.held(KEYS.left) ? 1 : 0);
-    const rate = target === 0 ? 8 : Math.sign(target) !== Math.sign(this.steer) ? 10 : 6;
+    const rate = target === 0 ? 10 : Math.sign(target) !== Math.sign(this.steer) ? 13 : 7.5;
     this.steer += Math.max(-rate * dt, Math.min(rate * dt, target - this.steer));
     this.throttle += Math.max(-8 * dt, Math.min(6 * dt, (this.held(KEYS.throttle) ? 1 : 0) - this.throttle));
     this.brake += Math.max(-12 * dt, Math.min(20 * dt, (this.held(KEYS.brake) ? 1 : 0) - this.brake));

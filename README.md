@@ -1,6 +1,6 @@
 # Roadster (g002)
 
-A 3D browser racing game starring an electric sports car, built with **three.js** and **Rapier** physics. Race up to 11 AI bots at five difficulty levels, with cold-gas thrusters for boosts, hops and flips, a chase camera, and handling tuned to feel good on a keyboard or a gamepad. Time trial and practice let you drive alone and chase your best lap. Party races pit you against up to seven friends: make a party, and they join by scanning its QR code or typing its 6-digit code.
+A 3D browser racing game starring the Tesla Roadster and seven more Teslas, built with **three.js** and **Rapier** physics. Race up to 11 AI bots at five difficulty levels, with cold-gas thrusters for boosts, hops and flips, real pit stops, a race commentator, a chase camera, and handling tuned to feel good on a keyboard or a gamepad. Time trial and practice let you drive alone and chase your best lap. Party races pit you against up to seven friends: make a party, and they join by scanning its QR code or typing its 6-digit code.
 
 It builds on [g001 (Grand Prix Racer)](https://github.com/l4mb0lion/g001-racing): the driving help, input handling, graphics presets, lighting, surface shaders, camera rig, crash recovery, synthesised audio and the AI drivers all come from there, adapted for an EV and for Rapier.
 
@@ -16,7 +16,7 @@ npm run dev            # http://localhost:5173
 npm run party-server   # in a second terminal, for party races (Vite passes /ws through to it)
 ```
 
-**Showroom:** open `?showroom` or `#showroom` (or use the link on the home screen) to see the car on a turntable in a studio. Drag to look around, scroll to zoom, and press P for paint, S for the spoiler, N for the lights and Enter to drive. `?showroom&car=0x2.5` shows another class.
+**Showroom:** open `?showroom` or `#showroom` (or use the link on the home screen) to see the car on a turntable in a studio. Drag to look around, scroll to zoom, and press P for paint, S for the spoiler, N for the lights and Enter to drive. `?showroom&car=cybertruck` shows another car (`roadster`, `model3`, `modelx`, `models`, `modely`, `cybertruck`, `cybercab` or `semi`).
 
 Useful URL options: `?quality=low|medium|high|ultra` overrides the automatic graphics preset, `?tod=morning|noon|sunset|night` picks the time of day, `?autodrive` lets the autopilot drive (a demo lap), and `?safe` starts in safe graphics.
 
@@ -27,6 +27,7 @@ The home screen lists every mode: **Quick Race**, **Race Weekend**, **Fun Mode**
 - **Quick Race:** pick the car, the time of day (morning, noon, sunset or night), the difficulty (Newbie, Beginner, Club, Expert or Pro), how many opponents (1 to 11) and how many laps (1 to 10), then press Start. You start towards the back of a staggered grid (fifth of six with 5 opponents). The standings panel (top right) shows your position, the lap and the gaps, and the bots appear as coloured dots on the map. The race setup is remembered.
 - **Race Weekend:** the same setup, then free practice (drive as long as you like, then pause and pick **Go to qualifying**), qualifying (your best of 2 laps sets your grid slot against the bots' times) and the race from that grid.
 - **Fun Mode:** a race on a course full of stunts, like g001's Fun Mode. See [Fun Mode](#fun-mode).
+- **Pit stops:** see [Pit stops](#pit-stops). **Commentary:** see [The commentator](#the-commentator).
 - **Championship** and **Licenses:** see [Classes and career](#classes-and-career).
 - **Time Trial:** alone from a standing start for the laps you pick; the results show every lap and your record for that car and number of laps.
 - **Practice:** drive alone with no countdown, as many laps as you like.
@@ -43,8 +44,8 @@ The bots are Lionelinni Bannanini, Gunvini Uvinini, Ramanini Banannini, Arvinini
 
 Fun Mode is a race on Roadster Circuit with stunts built in, after g001's Fun Mode. Every car is open to try, and the setup has on/off switches for the rings of fire, the ramps and pads, and the item boxes.
 
-- **Red ramps:** a full-width kicker on the main straight that throws you about 4 to 5 m up for over a second and a half, with a ring of fire hanging right at the top of the jump, and two half-width ramps on one side of the road. Each ramp's height is worked out from your class's speed, so every car lands back on the road. The deck is red with chevrons, the sides are neon pink and the lip glows cyan.
-- **Rings of fire:** six on the road to drive through, and three raised ones hanging from gantries that you jump through with the underbody jets. Through the middle scores 100 (road), 150 (raised) or 250 (the ramp ring) points, plus a quick boost; rings in a row are worth 25% more each. Brush the flames and the streak ends, the car slows and the paint is left sooty for a while. Driving under a raised ring singes the car too.
+- **Red ramps:** seven of them round the lap: a full-width kicker on the main straight that throws you about 4 to 5 m up for over a second and a half, more full-width and half-width ramps after the corners, and rings of fire hanging on the flight line of three of them. Each ramp's height is worked out from your car's speed, so every car (even the Semi) lands back on the road. The deck is red with chevrons, the sides are neon pink and the lip glows cyan.
+- **Rings of fire:** eleven on the road to drive through, and four raised ones hanging from gantries that you jump through with the underbody jets. Many of them sway from side to side or pulse smaller and bigger, so you have to time them. Through the middle scores 100 (road), 150 (raised) or 250 (the ramp ring) points, plus a quick boost; rings in a row are worth 25% more each. Brush the flames and the car catches fire: it slows, the streak ends, flames lick off the bodywork for three seconds and the paint is left sooty. Every burn damages the car, and three burns wreck it (the tow comes). Driving under a raised ring singes the car too.
 - **Neon borders:** rainbow strips flow along both edges of the road and along the barriers all the way round.
 - **Boost pads** on the exits of the five slowest corners, on the racing line.
 - **Item boxes:** four rows of spinning rainbow boxes. Drive through one for an item, then press **F** (or **ITEM** on a touch screen, or d-pad up) to use it: **Turbo**, **Triple Turbo** (three shorter boosts), **Oil Slick** (dropped behind you; a car that hits it spins) and **Mega Jump**.
@@ -63,24 +64,30 @@ The **Garage** tile opens the garage with your car beside it. Every change shows
 - **Tyres:** road, sport (5% more grip, but they heat up faster) or drift (less rear grip, easy slides).
 - **Glass tint** and **underglow** (cyan, pink, lime, purple or orange; brightest at night).
 
-The wing and tyres change the handling. The single-seaters wear your paint, livery and rim colour but keep their own wings. The bots have liveries and parts of their own.
+The wing and tyres change the handling. The other Teslas wear your paint, livery and rim colour but have no rear wing. The bots have liveries and parts of their own.
 
 ## Classes and career
 
-There are four cars. Pick one in the **Car** row before a race; a locked one says how to earn it.
+There are eight Teslas. Pick one in the **Car** row before a race; a locked one says how to earn it. Every car has its own 3D body, size, weight and handling, and the bots in a race drive the same car as you.
 
-| Class | What it is | How you get it |
+| Car | What it is | How you get it |
 |---|---|---|
-| **Rental** | The road car everyone starts with: gentle power, soft grip, very forgiving. 210 kW, 200 km/h. | Yours from the start |
-| **0x1.5** | The first open-wheel single-seater: light and nimble, 6-speed gearbox. 300 kW, 260 km/h. | Earn the National B license |
-| **0x2.5** | Faster and stickier, bigger wing, 7 gears. 430 kW, 300 km/h. | Top 3 in the 0x1.5 Championship |
-| **0x3.5** | The fastest car in the game: huge downforce, 8 gears. 600 kW, 340 km/h. | Top 3 in the 0x2.5 Championship |
+| **Roadster** | Where everyone starts: forgiving, with an active wing that brakes for you. 290 kW, 215 km/h. | Yours from the start |
+| **Model 3** | Light, low and sharp on turn-in. 390 kW, 262 km/h. | Earn the National B license |
+| **Model X** | A heavy SUV with three motors that pulls like nothing else off the line. 750 kW, 262 km/h. | Top 3 in the Model 3 Championship |
+| **Model S** | The fastest car in the game, with the grip to use it. 760 kW, 322 km/h. | Top 3 in the Model X Championship |
+| **Model Y** | The family crossover: taller and softer than the 3 but still quick. 340 kW, 250 km/h. | Free from the start |
+| **Cybertruck** | Three tonnes of stainless steel: brake early and lean on it. 630 kW, 209 km/h. | Free from the start |
+| **Cybercab** | The two-seat robotaxi with a steering wheel put back in: small, light and nimble. 200 kW, 190 km/h. | Free from the start |
+| **Semi** | The tractor unit, no trailer: eight tonnes, slow to stop and slow to turn, and nothing pushes it about. 800 kW, 150 km/h. | Free from the start |
 
-The single-seaters have a sequential gearbox (the wheel shows the gear number), downforce that adds grip as the speed rises, and their own 3D model with the driver, halo and wings. Each car carries a race number: the bots carry their own (bot 1 to bot 11), you are number 12. Every rival is a copy of your class's model in its own paint and number.
+**What they look like:** every car is modelled on the real one, to its published length, width, height and wheelbase. The Roadster, Model 3, Y, S and X, the Cybercab and the Semi's cab share one smooth body builder: sections with flat floors, sides that bulge and lean in to a rounded shoulder, and a crowned top, lofted along side and plan profiles, with round wheel openings cut out of the sides and a glasshouse lofted on the shoulders. Each gets the real car's signature details: the Roadster's raised front wings, black glass canopy and wide haunches; the 3's slim swept headlamps and C-shaped tail lamps; the Y's light bars across the nose and tail with headlamps low in the bumper; the S's bright window trim and painted roof; the X's panoramic windscreen and the seam between its falcon-wing doors; the Cybercab's light bars, painted fastback and covered wheels; and the Semi's bullet-train windscreen, nose light bar, cab extenders, battery skirts and tandem drive axles. The Cybertruck is built from flat-sided sections and flat shaded like its stainless panels: one straight line from the nose to the apex and down to the bed, light bars along the nose and tailgate, and square-cut arches with dark flares. No grilles, badges or logos.
 
-**Licenses:** National B (in the 0x1.5), National A (in the 0x2.5) and International A (in the 0x3.5). Each has five tests: drive from gate **A** to gate **B** from a standing start inside the target times. The briefing gives a tip and the gold, silver and bronze times, and a panel shows the clock as you drive. Leaving the road, going the wrong way or resetting fails the test, and the thrusters are off. Silver or better in all five earns the license and opens the next one; National B also gives you the 0x1.5. The targets come from a reference driver (the bots' line and braking at full pace, without mistakes): gold is 2% slower than it, silver 7% and bronze 15%.
+Each car carries a race number: the bots carry their own (bot 1 to bot 11), you are number 12. Every rival is a copy of your car's model in its own paint and number. Old saves move to the new cars (the Rental becomes the Roadster, the 0x1.5 the Model 3, the 0x2.5 the Model X and the 0x3.5 the Model S).
 
-**Championship:** the 0x1.5 Championship (3 races) and the 0x2.5 Championship (4 races), each against 7 bots at the difficulty you pick. Points go 25, 18, 15, 12, 10, 8, 6, 4, 2, 1; ties go to more wins. After each race, **Standings** shows the table; a championship in progress is saved, so you can **Continue** it later. Finish in the top 3 overall to earn the next car.
+**Licenses:** National B (in the Model 3), National A (in the Model X) and International A (in the Model S). Each has five tests: drive from gate **A** to gate **B** from a standing start inside the target times. The briefing gives a tip and the gold, silver and bronze times, and a panel shows the clock as you drive. Leaving the road, going the wrong way or resetting fails the test, and the thrusters are off. Silver or better in all five earns the license and opens the next one; National B also gives you the Model 3. The targets come from a reference driver (the bots' line and braking at full pace, without mistakes): gold is 2% slower than it, silver 7% and bronze 15%.
+
+**Championship:** the Model 3 Championship (3 races) and the Model X Championship (4 races), each against 7 bots at the difficulty you pick. Points go 25, 18, 15, 12, 10, 8, 6, 4, 2, 1; ties go to more wins. After each race, **Standings** shows the table; a championship in progress is saved, so you can **Continue** it later. Finish in the top 3 overall to earn the next car.
 
 Progress (cars, medals, licenses, championships) is saved in the browser. Add `?unlock` to the address to open everything for testing.
 
@@ -140,7 +147,7 @@ A fictional electric sports coupe, inspired by modern EVs (no real brand names, 
 - **Powertrain:** dual motor, 42/58 front/rear, 560 kW, instant torque up to the grip limit, no gears. About 2.5 s to 100 km/h and 265 km/h flat out. Lifting off the throttle regenerates gently (the power gauge turns green).
 - **Chassis:** 1,850 kg, low centre of mass, anti-roll bars, aero drag and downforce. Grass has less grip and much more drag.
 - **Driving help** (from g001, default Easy) catches slides: it limits steering to what the tyres can hold and counter-steers when the rear steps out, and the physics damps excess yaw. It never steers you towards the line or brakes for you. Easy and Medium also keep traction control and ABS on; Off is fully raw.
-- **Visuals:** a procedural body in the style of the 2026 electric roadster: a low wedge with a flat, faceted hood and V-shaped centre panel, fenders standing proud of the hood, a sharp beltline, a black lower body and a gold-tinted glass canopy. It has a light bar across the nose, hidden headlights, a full-width tail light, a carbon diffuser with suction fans, and an active rear wing. The wing lies flush on the tail until about 80 km/h, then pops up; it trims flat for low drag at very high speed and stands up as an airbrake under hard braking. Through the tinted glass you can see the cabin, with white seats, a dash and a yoke. On High and Ultra the paint and glass reflect the track and sky live. It rides on 20" front and 21" rear wheels with thin black spokes over white aero inserts, shows body roll, pitch and skid marks, and comes in twelve paint colours (or any colour, finish and livery in the [Garage](#garage)). No real brand names or logos.
+- **Visuals:** the second-generation Tesla Roadster: a low 2+2 with a long nose, front wings standing proud of the bonnet, slim swept headlamps, a black glass canopy (windscreen, targa roof and rear window) with sail panels sweeping down into wide rear haunches, swept tail lamps and a ducktail. The active rear wing lies flush on the ducktail until about 80 km/h, then pops up; it trims flat for low drag at very high speed and stands up as an airbrake under hard braking. On High and Ultra the paint and glass reflect the track and sky live. It rides on 20" front and 21" rear wheels with thin black spokes over white aero inserts, shows body roll, pitch and skid marks, and comes in twelve paint colours (or any colour, finish and livery in the [Garage](#garage)). No real brand names or logos.
 
 ## Thrusters and the air tank
 
@@ -154,17 +161,29 @@ The car carries cold-gas thrusters fed by one compressed-air tank (the HUD's AIR
 - **Refilling:** the tank never refills by itself. Six rows of glowing air canisters sit off the racing line around the lap (cyan dots on the map); each one adds 12% and comes back 8 seconds after it is taken.
 - The debris fence on the barriers is solid, so a hop can't clear the circuit.
 
+## Pit stops
+
+The pit lane runs along the right of the main straight, behind a pit wall, with a garage and a painted box for every car. Turn right at the **PIT IN** board just after the line, keep to the 80 km/h limit (the limiter holds you to it and the HUD shows **PIT LIMITER**), and stop in your box, which is in front of your grid slot's garage. The crew run out with wheel guns, jacks and a lollipop: they fit fresh tyres, fix the bodywork and top up the air tank. The panel on the left shows the stop's progress and what's being done. A tyre change takes about 2.4 s and repairs add up to 4.5 s more. When the lollipop lifts, drive down the lane and rejoin at **PIT OUT**.
+
+Tyres wear as you race, faster when you slide, brake hard or spin the wheels. The tread bar under the tyre panel shows what's left. Fresh tyres have full grip for the first fifth of their life, then lose grip steadily (up to a fifth of it when they are finished), so a race of five laps or more is quicker with a stop. In races of four laps or more every bot plans one stop, and a badly damaged bot comes in for repairs.
+
+## The commentator
+
+A British commentator calls your races: the start, overtakes (yours and others'), the lead changing hands, crashes, the tow, big air and stunts, rings of fire, catching fire, items, pit stops (and when the crew want you in for tyres), the fastest lap, the final lap and the finish. He fills the quiet stretches with how the race is going. Every line shows as a caption above the steering wheel, the car sounds drop a little while he talks, and the crowd cheers the big moments (you can see the grandstand jump). Settings → **Commentary** picks **Voice**, **Captions** (no voice) or **Off**.
+
+The voice is recorded ahead of time: every fixed phrase, bot name, position and car name is its own small clip in `public/voice` (about 1.6 MB), and a line is played as clips back to back. `scripts/voice-manifest.ts` lists what's needed and `scripts/gen-voice.py` records it with the open [Kokoro](https://github.com/hexgrad/kokoro) TTS model (voice `bm_george`). If a clip is missing the browser's own speech voice reads the line.
+
 ## Crashes and the flying tow
 
 The bodywork takes damage in four zones: front, rear, left and right. A hit is the sudden change in the car's speed when it strikes the barrier or another car. Kerbs, landings, gentle nudges and scrapes along the wall leave no mark. A head-on hit at about 50 km/h dents the front badly, and one at about 90 km/h wrecks it. The panels crumple in where the car was hit, and shards of paint, trim and lens fly off with a shower of sparks. A badly damaged car smokes, loses up to 40% of its power, and a bent front corner pulls the steering towards it. The CAR meter next to the air gauge shows each zone going from green through yellow to red.
 
-When the car is wrecked, on its roof, lost far off the circuit, or when you press reset, a **flying tow Roadster** comes for it. The tow car is recovery orange, with its wheels folded flat into hover pods, blue jets, and amber beacons. It swoops down from the sky, hovers over the wreck, lowers a cable and hooks the car. Then it carries the car back over the circuit and sets it down on the road facing the right way, repaired and ready to drive. As you pull away, it flies on ahead through three rings of fire above the track and climbs back into the sky. The rivals' cars dent too, and the race fixes them up when it puts them back on the road.
+When the car is wrecked, on its roof, lost far off the circuit, or when you press reset, a **flying tow Roadster** comes for it, fast: it dives in, hooks on and has you back on the road in a few seconds, leaving a contrail. The tow car is recovery orange, with its wheels folded flat into hover pods, blue jets, and amber beacons. It swoops down from the sky, hovers over the wreck, lowers a cable and hooks the car. Then it carries the car back over the circuit and sets it down on the road facing the right way, repaired and ready to drive. As you pull away, it flies on ahead through three rings of fire above the track and climbs back into the sky. The rivals' cars dent too, and the race fixes them up when it puts them back on the road.
 
-**Realism:** tyres smoke when they slide or spin, grass and dirt fly up when you run wide, sparks come off a hard landing or a scrape along the wall, and the circuit has braking boards (300, 200 and 100 m) before the five heaviest braking zones and marshal posts with orange flags around the lap.
+**Realism:** tyres smoke when they slide or spin, grass and dirt fly up when you run wide, sparks come off a hard landing or a scrape along the wall, and the circuit has braking boards (300, 200 and 100 m) before the five heaviest braking zones, marshal posts with orange flags around the lap, advertising boards along the barriers and flags on the grandstand roof.
 
 ## The circuit
 
-Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses and fast sweepers, and gentle elevation changes (about ±6 m). Kerbs line every corner, concrete barriers and a debris fence run the whole lap, and the main straight has a grandstand, a start gantry with lights, and a charging pavilion. The landscape rolls into forested hills and snow-capped mountains.
+Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses and fast sweepers, and gentle elevation changes (about ±6 m). Kerbs line every corner, concrete barriers and a debris fence run the whole lap, and the main straight has a grandstand, a start gantry with lights, a charging pavilion and the pit lane. The landscape rolls into forested hills and snow-capped mountains.
 
 ## How it works
 
@@ -179,7 +198,7 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Autopilot (tests and demo) | `src/sim/autopilot.ts` |
 | Thrusters and air tank; air canisters | `src/sim/jets.ts`, `src/sim/canisters.ts` |
 | Renderer, presets, lighting, surfaces | `src/render/renderer.ts`, `graphics.ts`, `environment.ts`, `surfaces.ts` |
-| Scenery, car body and model, live reflections, skid marks, cameras | `src/render/trackScene.ts`, `carBody.ts`, `carModel.ts`, `reflections.ts`, `skids.ts`, `cameras.ts` |
+| Scenery, the Roadster's model (wheels, wing) and the shared body tools, live reflections, skid marks, cameras | `src/render/trackScene.ts`, `carModel.ts`, `carBody.ts`, `reflections.ts`, `skids.ts`, `cameras.ts` |
 | Vapour puffs and jet cones; canisters; fast copies of the car model for rivals; name tags | `src/render/vapour.ts`, `canisterScene.ts`, `cloneModel.ts`, `nameTag.ts` |
 | Fun Mode course (ramps, rings of fire, pads, boxes), scoring, items and the bots' choices | `src/sim/fun.ts` |
 | Fun Mode on screen: red ramps, flames and smoke, gantries, neon borders, boxes and pads; a stand-alone `FireRing` | `src/render/funScene.ts` |
@@ -193,7 +212,9 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Touch controls: pedals, slider/buttons/tilt steering, readout and tyres | `src/ui/touch.ts` |
 | Racing line and speed profile; AI rivals; the race (grid, laps, positions) | `src/sim/racingLine.ts`, `rival.ts`, `race.ts` |
 | Race classes; championships; licenses and their targets; race weekend qualifying | `src/sim/classes.ts`, `championship.ts`, `licenses.ts`, `weekend.ts` |
-| Single-seater model; the model for each class; license gates | `src/render/openWheel.ts`, `models.ts`, `gates.ts` |
+| The Tesla bodies (the shared lofted body and glasshouse builder, every car's shape, the Cybertruck's flat panels, the Semi's chassis); the model for each car; license gates | `src/render/teslaModel.ts`, `models.ts`, `gates.ts` |
+| Pit lane, limiter, stops and tyre wear; the pit lane, garages and crews on screen | `src/sim/pits.ts`, `src/sim/car.ts`, `src/render/pitScene.ts` |
+| The commentator's lines and when he says them; the recorded clips | `src/core/commentary.ts`, `src/core/audio.ts`, `public/voice/`, `scripts/voice-manifest.ts`, `scripts/gen-voice.py` |
 | Saved career progress (cars, medals, licenses, championships) | `src/core/progress.ts` |
 | Reference times for the license targets and the bots' qualifying laps | `scripts/license-times.ts` |
 | Crash damage zones; the tow's flight | `src/sim/damage.ts`, `tow.ts` |
@@ -202,7 +223,7 @@ Roadster Circuit is a 2.5 km loop with a 500 m main straight, hairpins, esses an
 | Party server: lobby, codes, start lights, state relay, results | `server/party-core.ts` (shared), `worker/index.ts` (Durable Object), `server/server.ts` (local) |
 | Party client, screens with the QR code, the friends' cars | `src/net/party.ts`, `src/ui/partyUi.ts`, `src/render/remoteCars.ts` |
 
-Physics runs at a fixed 120 Hz and the renderer interpolates between steps, so the car looks smooth at any frame rate. There are no image or audio files: textures are drawn on canvases and every sound is synthesised with Web Audio.
+Physics runs at a fixed 120 Hz and the renderer interpolates between steps, so the car looks smooth at any frame rate. There are no image files: textures are drawn on canvases. Every sound is synthesised with Web Audio except the commentator's voice clips.
 
 ## Development
 

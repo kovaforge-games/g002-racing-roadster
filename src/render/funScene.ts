@@ -139,6 +139,11 @@ export class FunScene {
   private lights: THREE.PointLight[] = [];
   private neon: THREE.ShaderMaterial;
   private t = 0;
+  private ringViews: { ring: Ring; group: THREE.Group; hoop: THREE.Object3D[] }[] = [];
+  private hazardMat: THREE.MeshBasicMaterial | null = null;
+  /** cars on fire: flames over the body, made the first time each car burns */
+  private burning = new Map<THREE.Object3D, THREE.Points>();
+  private burnGeo: THREE.BufferGeometry | null = null;
 
   constructor(private track: Track, private fun: Fun, quality: Quality) {
     const fine = quality === 'high' || quality === 'ultra';
@@ -250,31 +255,63 @@ export class FunScene {
     const sooty = new THREE.MeshStandardMaterial({ color: 0x1a1a1b, roughness: 0.8, metalness: 0.4 });
     this.disposables.push(steel, sooty);
     for (const r of this.fun.layout.rings) {
-      const axis = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(r.nx, 0, r.nz));
+      // each ring is built round its own centre, facing +z, so a moving ring just moves its group
+      const g = new THREE.Group();
+      g.position.set(r.x, r.y, r.z);
+      g.rotation.y = Math.atan2(r.nx, r.nz);
+      const local: Ring = { ...r, x: 0, y: 0, z: 0, nx: 0, nz: 1, rx: 1, rz: 0, floor: r.floor - r.y };
       // the burner pipe, and a hot glowing core inside the flames
       const pipe = new THREE.Mesh(new THREE.TorusGeometry(r.r, 0.09, 10, 96), sooty);
-      pipe.position.set(r.x, r.y, r.z); pipe.quaternion.copy(axis); pipe.castShadow = true;
+      pipe.castShadow = true;
       const core = new THREE.Mesh(new THREE.TorusGeometry(r.r, 0.2, 8, 96), this.glowMat);
-      core.position.copy(pipe.position); core.quaternion.copy(axis);
-      this.group.add(pipe, core);
+      g.add(pipe, core);
       this.disposables.push(pipe.geometry, core.geometry);
       // the road glows under rings that reach down to it
       if (r.kind !== 'ramp') {
         const glow = new THREE.Mesh(new THREE.PlaneGeometry(r.r * 3.2, 7).rotateX(-Math.PI / 2), this.floorMat);
-        glow.position.set(r.x, r.floor + 0.06, r.z);
-        glow.rotation.y = Math.atan2(r.nx, r.nz);
+        glow.position.y = r.floor - r.y + 0.06;
         glow.renderOrder = 1;
-        this.group.add(glow);
+        g.add(glow);
         this.disposables.push(glow.geometry);
       }
-      if (r.kind !== 'road') this.gantry(r, steel);
+      if (r.kind !== 'road') this.gantry(r, steel, g);
+      const { fire, smoke } = ringParticles([local], density * (r.sway || r.pulse ? 1.15 : 1));
+      const fp = new THREE.Points(fire, this.fire), sp = new THREE.Points(smoke, this.smoke);
+      fp.frustumCulled = sp.frustumCulled = false;
+      fp.renderOrder = 4; sp.renderOrder = 3;
+      g.add(sp, fp);
+      this.disposables.push(fire, smoke);
+      // moving rings carry warning chevrons on the road either side of their track
+      if (r.sway) this.swayMarks(r);
+      this.group.add(g);
+      this.ringViews.push({ ring: r, group: g, hoop: [pipe, core, fp, sp] });
     }
-    const { fire, smoke } = ringParticles(this.fun.layout.rings, density);
-    const fp = new THREE.Points(fire, this.fire), sp = new THREE.Points(smoke, this.smoke);
-    fp.frustumCulled = sp.frustumCulled = false;
-    fp.renderOrder = 4; sp.renderOrder = 3;
-    this.group.add(sp, fp);
-    this.disposables.push(fire, smoke);
+  }
+
+  /** yellow and black hazard stripes across the road where a ring slides from side to side */
+  private swayMarks(r: Ring) {
+    if (!this.hazardMat) {
+      const tex = canvasTex(128, 32, c => {
+        c.fillStyle = '#ffd400'; c.fillRect(0, 0, 128, 32);
+        c.fillStyle = '#111';
+        for (let x = -32; x < 160; x += 32) { c.beginPath(); c.moveTo(x, 32); c.lineTo(x + 16, 32); c.lineTo(x + 32, 0); c.lineTo(x + 16, 0); c.fill(); }
+      });
+      tex.wrapS = THREE.RepeatWrapping;
+      this.hazardMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.85, polygonOffset: true, polygonOffsetFactor: -5 });
+      this.disposables.push(tex, this.hazardMat);
+    }
+    const w = 2 * (r.sway + r.r0);
+    for (const ds of [-9, 9]) {
+      const p = this.track.pointAt(r.s + ds, r.d0);
+      const geo = new THREE.PlaneGeometry(w, 0.6).rotateX(-Math.PI / 2);
+      const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+      for (let k = 0; k < uv.count; k++) uv.setX(k, uv.getX(k) * w / 1.6);
+      const m = new THREE.Mesh(geo, this.hazardMat);
+      m.position.set(p.x, p.y + 0.045, p.z);
+      m.rotation.y = this.track.headingAt(r.s + ds);
+      this.group.add(m);
+      this.disposables.push(geo);
+    }
   }
 
   /** neon borders: glowing strips along both edges of the road and along the barriers, in
@@ -319,8 +356,9 @@ export class FunScene {
     return mat;
   }
 
-  /** two poles beside the road, a beam across, and cables down to the top of the hoop */
-  private gantry(r: Ring, steel: THREE.Material) {
+  /** two poles beside the road, a beam across, and cables down to the top of the hoop (the
+   *  cables hang in the ring's own group, so they slide along the beam with a moving ring) */
+  private gantry(r: Ring, steel: THREE.Material, ringGroup: THREE.Group) {
     const topY = r.y + r.r + 1.4;
     const pole = new THREE.CylinderGeometry(0.16, 0.2, 1, 12).translate(0, 0.5, 0);
     const ends: THREE.Vector3[] = [];
@@ -338,13 +376,18 @@ export class FunScene {
     beam.castShadow = true;
     this.group.add(beam);
     for (const a of [Math.PI / 2 - 0.5, Math.PI / 2 + 0.5]) {
-      const p = hoopPoint(r, a);
-      const len = topY - p.y;
+      const x = Math.cos(a) * r.r, y = Math.sin(a) * r.r;
+      const len = topY - r.y - y;
       const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, len, 6), steel);
-      cable.position.set(p.x, p.y + len / 2, p.z);
-      this.group.add(cable);
+      cable.position.set(x, y + len / 2, 0);
+      ringGroup.add(cable);
       this.disposables.push(cable.geometry);
     }
+    // the trolley the cables hang from
+    const trolley = new THREE.Mesh(new THREE.BoxGeometry(r.r * 1.2, 0.3, 0.6), steel);
+    trolley.position.set(0, topY - r.y - 0.3, 0);
+    ringGroup.add(trolley);
+    this.disposables.push(trolley.geometry);
     this.disposables.push(pole, beam.geometry);
   }
 
@@ -376,6 +419,12 @@ export class FunScene {
       l.position.set(r.x, r.y + 0.4, r.z);
       l.intensity = (night ? 260 : 120) * flick * (0.9 + 0.1 * Math.sin(this.t * 31 + k));
     });
+    // moving and pulsing rings
+    for (const v of this.ringViews) {
+      const r = v.ring;
+      if (r.sway) v.group.position.set(r.x, r.y, r.z);
+      if (r.pulse) { const k = r.r / r.r0; for (const o of v.hoop) o.scale.set(k, k, 1); }
+    }
     this.neon.uniforms.uTime.value = this.t;
     this.neon.uniforms.uBright.value = night ? 1.6 : 2.2;
     const map = this.padMat.map;
@@ -396,7 +445,38 @@ export class FunScene {
     for (const [o, m] of this.oils) if (!this.fun.oils.includes(o)) { this.group.remove(m); this.oils.delete(o); }
   }
 
+  /** flames over a car that brushed a ring: `level` 0..1 (0 puts them out) */
+  setBurning(root: THREE.Object3D, level: number) {
+    let p = this.burning.get(root);
+    if (!p && level <= 0) return;
+    if (!p) {
+      if (!this.burnGeo) {
+        // flames licking up off the bonnet, the roof and the tail
+        const pos: number[] = [], seed: number[] = [], floor: number[] = [];
+        for (let k = 0; k < 260; k++) {
+          const z = (Math.random() - 0.5) * 3.6, x = (Math.random() - 0.5) * 1.4;
+          pos.push(x, 0.35 + Math.random() * 0.4 - Math.abs(z) * 0.05, z);
+          seed.push(Math.random(), 1.4 + Math.random() * 1.6, 0.35 + Math.random() * 0.4, 0.8 + Math.random() * 0.9);
+          floor.push(-10);
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setAttribute('seed', new THREE.Float32BufferAttribute(seed, 4));
+        g.setAttribute('floorY', new THREE.Float32BufferAttribute(floor, 1));
+        this.burnGeo = g; this.disposables.push(g);
+      }
+      p = new THREE.Points(this.burnGeo, this.fire);
+      p.frustumCulled = false; p.renderOrder = 4;
+      root.add(p);
+      this.burning.set(root, p);
+    }
+    p.visible = level > 0.01;
+    p.scale.setScalar(0.4 + 0.6 * Math.min(1, level));
+  }
+
   dispose() {
+    for (const [root, p] of this.burning) root.remove(p);
+    this.burning.clear();
     for (const d of this.disposables) d.dispose();
     this.group.clear();
   }
@@ -417,7 +497,7 @@ export class FireRing {
     this.smoke = new THREE.ShaderMaterial({ vertexShader: SMOKE_VERT, fragmentShader: SMOKE_FRAG, transparent: true, depthWrite: false,
       uniforms: { uTime: { value: 0 }, uScale: { value: 400 }, uColor: { value: new THREE.Color(0x3a3532) } } });
     this.glow = new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-    const ring: Ring = { kind: 'ramp', s: 0, d: 0, r: radius, x: 0, y: 0, z: 0, floor: -1e6, nx: 0, nz: 1, rx: 1, rz: 0, poles: 0 };
+    const ring: Ring = { kind: 'ramp', s: 0, d: 0, r: radius, x: 0, y: 0, z: 0, floor: -1e6, nx: 0, nz: 1, rx: 1, rz: 0, poles: 0, d0: 0, r0: radius, sway: 0, pulse: 0, rate: 0, phase: 0 };
     const pipe = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.09, 10, 96), new THREE.MeshStandardMaterial({ color: 0x1a1a1b, roughness: 0.8, metalness: 0.4 }));
     const core = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.2, 8, 96), this.glow);
     const { fire, smoke } = ringParticles([ring], density);

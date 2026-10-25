@@ -1,5 +1,5 @@
 // Showroom: the car alone on a turntable in a studio, lit by soft boxes, to look at up close.
-// Open with ?showroom or #showroom (?showroom&car=0x2.5 for another class). Drag to orbit, scroll to zoom; P changes the paint, S raises the spoiler,
+// Open with ?showroom or #showroom (?showroom&car=cybertruck for another class). Drag to orbit, scroll to zoom; P changes the paint, S raises the spoiler,
 // N toggles the lights, and Enter goes to the track.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -22,7 +22,7 @@ export class Showroom {
   /** test hook: stop the turntable and auto-orbit at a fixed angle (radians) */
   angle: number | null = null;
 
-  constructor(container: HTMLElement, quality: Quality = 'ultra', cls: ClassId = 'rental') {
+  constructor(container: HTMLElement, quality: Quality = 'ultra', cls: ClassId = 'roadster') {
     this.model = buildModel(cls);
     this.renderer = new Renderer(container);
     this.renderer.configure({ graphicsMode: 'custom', quality, resolutionScale: 1, shadows: true, postfx: true });
@@ -30,7 +30,7 @@ export class Showroom {
     gl.toneMapping = THREE.NeutralToneMapping;
     gl.toneMappingExposure = 0.85;
     gl.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.setBloom(0.12, 2.4);
+    this.renderer.setBloom(0.05, 3);
 
     // studio: soft boxes for reflections, a dark graded backdrop, a glossy floor
     const pm = new THREE.PMREMGenerator(gl);
@@ -51,10 +51,10 @@ export class Showroom {
     this.scene.add(this.turntable);
 
     // key light from above for crisp contact shadows, plus a cool rim and a warm fill
-    const key = new THREE.DirectionalLight(0xffffff, 1.8);
+    const key = new THREE.DirectionalLight(0xffffff, 1.35);
     key.position.set(3, 9, 4); key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    Object.assign(key.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 1, far: 20 });
+    Object.assign(key.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 24 });
     key.shadow.bias = -0.0003; key.shadow.normalBias = 0.02; key.shadow.radius = 6;
     const rim = new THREE.DirectionalLight(0xbcd6ff, 1.2); rim.position.set(-6, 3, -5);
     const fill = new THREE.DirectionalLight(0xffe6cc, 0.5); fill.position.set(-4, 2, 6);
@@ -65,17 +65,21 @@ export class Showroom {
     this.model.root.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
     this.turntable.add(this.model.root);
 
-    this.camera.position.set(5.6, 1.5, 6.4);
+    // a bigger car (the Cybertruck, the Semi) gets a bigger turntable and a camera further back
+    const box = new THREE.Box3().setFromObject(this.model.bodyShell), size = Math.max(1, (box.max.z - box.min.z) / 4.7);
+    plate.scale.set(size, 1, size); ring.scale.set(size, 1, size);
+    this.camera.position.set(5.6 * size, 1.5 * size, 6.4 * size);
     this.controls = new OrbitControls(this.camera, gl.domElement);
-    this.controls.target.set(0, 0.55, 0);
+    this.controls.target.set(0, Math.max(0.55, (box.max.y - box.min.y) * 0.4), 0);
     this.controls.enableDamping = true;
-    this.controls.minDistance = 3; this.controls.maxDistance = 16;
+    this.controls.minDistance = 3; this.controls.maxDistance = 16 * size;
     this.controls.maxPolarAngle = Math.PI / 2 - 0.04;
     this.controls.autoRotate = true; this.controls.autoRotateSpeed = 0.6;
 
     const caption = document.createElement('div');
     caption.className = 'showroom-caption';
-    caption.innerHTML = '<div class="brand small">ROADSTER</div><div class="hint">Drag to look around · scroll to zoom · <b>P</b> paint · <b>S</b> spoiler · <b>N</b> lights · <a href="#drive">Drive ›</a></div><div class="paint"></div>';
+    const wing = CLASSES[cls].body === 'roadster' ? ' · <b>S</b> spoiler' : '';
+    caption.innerHTML = `<div class="brand small">${CLASSES[cls].name.toUpperCase()}</div><div class="hint">Drag to look around · scroll to zoom · <b>P</b> paint${wing} · <b>N</b> lights · <a href="#drive">Drive ›</a></div><div class="paint"></div>`;
     document.body.appendChild(caption);
     const paintLabel = caption.querySelector('.paint')!;
     paintLabel.textContent = this.model.paintName;
